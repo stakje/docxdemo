@@ -384,6 +384,73 @@ public partial class MainWindow : Window
         return File.Exists(development) ? development : null;
     }
 
+    private void UninstallButton_Click(object sender, RoutedEventArgs e)
+    {
+        var uninstallerPath = FindUninstallerPath();
+        if (uninstallerPath is null)
+        {
+            MessageBox.Show(this, "当前运行的不是 Setup 安装版本，未找到系统卸载程序。", "无法卸载 DocVista", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            this,
+            "确定要卸载 DocVista 吗？\n\n卸载程序将移除应用和快捷方式，不会删除你的文档。",
+            "卸载 DocVista",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            var startInfo = new ProcessStartInfo(uninstallerPath)
+            {
+                UseShellExecute = true,
+                WorkingDirectory = Path.GetDirectoryName(uninstallerPath)!
+            };
+            startInfo.ArgumentList.Add("--uninstall");
+            var uninstaller = Process.Start(startInfo);
+            if (uninstaller is null) throw new InvalidOperationException("系统卸载程序没有成功启动。");
+            Close();
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(this, exception.Message, "无法卸载 DocVista", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private static string? FindUninstallerPath()
+    {
+        var installRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Update.exe"));
+        if (File.Exists(installRootPath)) return installRootPath;
+
+        const string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\DocVista";
+        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        {
+            using var key = hive.OpenSubKey(keyPath);
+            var command = key?.GetValue("UninstallString") as string;
+            var registeredPath = ExtractExecutablePath(command);
+            if (registeredPath is not null && File.Exists(registeredPath)) return registeredPath;
+        }
+
+        return null;
+    }
+
+    private static string? ExtractExecutablePath(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command)) return null;
+        command = command.Trim();
+        if (command[0] == '"')
+        {
+            var closingQuote = command.IndexOf('"', 1);
+            return closingQuote > 1 ? command[1..closingQuote] : null;
+        }
+
+        var executableEnd = command.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
+        return executableEnd >= 0 ? command[..(executableEnd + 4)].Trim() : null;
+    }
+
     private void SidebarButton_Click(object sender, RoutedEventArgs e)
     {
         var collapse = SidebarColumn.Width.Value > 0;

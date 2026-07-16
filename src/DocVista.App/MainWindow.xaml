@@ -80,9 +80,14 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Button Grid.Row="4" Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click" AutomationProperties.Name="检查更新">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="检查更新"/></StackPanel>
-                    </Button>
+                    <StackPanel Grid.Row="4">
+                        <Button Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click" AutomationProperties.Name="检查更新">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="检查更新"/></StackPanel>
+                        </Button>
+                        <Button Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UninstallButton_Click" AutomationProperties.Name="卸载 DocVista">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="卸载 DocVista"/></StackPanel>
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </Border>
 
