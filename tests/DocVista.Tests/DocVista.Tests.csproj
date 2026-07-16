@@ -9,4 +9,7 @@
     <ProjectReference Include="..\..\src\DocVista.Core\DocVista.Core.csproj" />
     <ProjectReference Include="..\..\src\DocVista.Rendering\DocVista.Rendering.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NPOI" Version="2.7.3" />
+  </ItemGroup>
 </Project>

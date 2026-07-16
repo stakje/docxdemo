@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.1",
+    [string]$Version = "0.1.2",
     [ValidateSet("win", "beta")][string]$Channel = "win",
     [string]$UpdateFeedUrl = "",
     [string]$SignParams = ""
@@ -39,6 +39,7 @@ $packArguments = @(
     "--packTitle", "DocVista",
     "--packAuthors", "DocVista",
     "--releaseNotes", (Join-Path $root "CHANGELOG.md"),
+    "--noPortable", "true",
     "--shortcuts", "StartMenuRoot",
     "--splashProgressColor", "#80A3C8"
 )

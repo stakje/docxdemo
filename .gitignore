@@ -3,6 +3,8 @@ bin/
 obj/
 artifacts/
 Releases/
+tmp/
+output/
 
 # Local SDK and caches
 .dotnet/

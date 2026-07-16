@@ -35,13 +35,22 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          name: DocVista-windows
-          path: artifacts/releases/*
+          name: DocVista-Setup
+          path: artifacts/releases/DocVista-win-Setup.exe
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $files = Get-ChildItem artifacts/releases -File | ForEach-Object FullName
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $names = @(
+            'DocVista-win-Setup.exe',
+            "DocVista-$version-full.nupkg",
+            "DocVista-$version-delta.nupkg",
+            'assets.win.json',
+            'RELEASES',
+            'releases.win.json'
+          )
+          $files = $names | ForEach-Object { Join-Path 'artifacts/releases' $_ } | Where-Object { Test-Path $_ }
           gh release create $env:GITHUB_REF_NAME @files --title $env:GITHUB_REF_NAME --generate-notes

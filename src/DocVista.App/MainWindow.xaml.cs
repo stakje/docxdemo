@@ -21,7 +21,7 @@ public partial class MainWindow : Window
     private readonly SettingsStore _settingsStore = new();
     private readonly AppSettings _settings;
     private CancellationTokenSource? _openCancellation;
-    private XlsxWorkbook? _workbook;
+    private ISpreadsheetWorkbook? _workbook;
     private ShellPreviewHost? _shellPreview;
     private DocumentInfo? _currentDocument;
     private bool _restoringSheet;
@@ -81,8 +81,16 @@ public partial class MainWindow : Window
                     var csv = await Task.Run(() => CsvDocument.LoadAsync(document.Path, cancellationToken), cancellationToken);
                     ShowTable(csv);
                     break;
-                case DocumentKind.Excel when document.Extension == ".XLSX":
-                    await OpenXlsxAsync(document.Path, cancellationToken);
+                case DocumentKind.Excel:
+                    await OpenSpreadsheetAsync(document.Path, cancellationToken);
+                    break;
+                case DocumentKind.Word:
+                    if (!await TryOpenShellPreviewAsync(document.Path, cancellationToken))
+                        await OpenOfficeDocumentAsync(document.Path, cancellationToken);
+                    break;
+                case DocumentKind.PowerPoint:
+                    if (!await TryOpenShellPreviewAsync(document.Path, cancellationToken))
+                        await OpenOfficeDocumentAsync(document.Path, cancellationToken);
                     break;
                 default:
                     await OpenShellPreviewAsync(document.Path, cancellationToken);
@@ -116,9 +124,11 @@ public partial class MainWindow : Window
         ShowState(PdfViewer);
     }
 
-    private async Task OpenXlsxAsync(string path, CancellationToken cancellationToken)
+    private async Task OpenSpreadsheetAsync(string path, CancellationToken cancellationToken)
     {
-        _workbook = await Task.Run(() => XlsxWorkbook.Open(path), cancellationToken);
+        _workbook = await Task.Run<ISpreadsheetWorkbook>(() => Path.GetExtension(path).Equals(".xls", StringComparison.OrdinalIgnoreCase)
+            ? LegacyXlsWorkbook.Open(path)
+            : XlsxWorkbook.Open(path), cancellationToken);
         if (_workbook.Sheets.Count == 0) throw new InvalidDataException("工作簿中没有可见工作表。");
         _restoringSheet = true;
         SheetSelector.ItemsSource = _workbook.Sheets;
@@ -150,6 +160,77 @@ public partial class MainWindow : Window
         SearchBox.Visibility = Visibility.Collapsed;
     }
 
+    private async Task<bool> TryOpenShellPreviewAsync(string path, CancellationToken cancellationToken)
+    {
+        try { await OpenShellPreviewAsync(path, cancellationToken); return true; }
+        catch
+        {
+            _shellPreview?.UnloadPreview();
+            _shellPreview = null;
+            ShellViewerContainer.Children.Clear();
+            return false;
+        }
+    }
+
+    private async Task OpenOfficeDocumentAsync(string path, CancellationToken cancellationToken)
+    {
+        var document = await Task.Run(() => OfficeDocumentLoader.Load(path), cancellationToken);
+        OfficePagesPanel.Children.Clear();
+        for (var index = 0; index < document.Pages.Count; index++)
+            OfficePagesPanel.Children.Add(CreateOfficePage(document.Pages[index], document.Mode, index + 1, document.Pages.Count));
+        TableSummary.Text = document.Summary;
+        SearchBox.Visibility = Visibility.Collapsed;
+        ShowState(OfficeViewer);
+    }
+
+    private FrameworkElement CreateOfficePage(OfficePage page, OfficeViewMode mode, int pageNumber, int totalPages)
+    {
+        var content = new StackPanel();
+        if (!string.IsNullOrWhiteSpace(page.Title))
+            content.Children.Add(new TextBlock { Text = page.Title, FontSize = mode == OfficeViewMode.Presentation ? 26 : 20, FontWeight = FontWeights.SemiBold, Foreground = (Brush)FindResource("OuterSpaceBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
+
+        foreach (var block in page.Blocks)
+        {
+            var text = new TextBlock
+            {
+                Text = block.Text,
+                FontSize = block.IsHeading ? 20 : mode == OfficeViewMode.Presentation ? 16 : 13,
+                FontWeight = block.IsHeading ? FontWeights.SemiBold : FontWeights.Normal,
+                Foreground = (Brush)FindResource(block.IsHeading ? "OuterSpaceBrush" : "TextBrush"),
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = mode == OfficeViewMode.Presentation ? 27 : 22,
+                Margin = new Thickness(0, block.IsHeading ? 14 : 3, 0, block.IsHeading ? 8 : 5)
+            };
+            if (block.IsTableRow)
+                content.Children.Add(new Border { Background = (Brush)FindResource("BoneSoftBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(9, 6, 9, 6), Child = text });
+            else content.Children.Add(text);
+        }
+
+        var grid = new Grid();
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(content, 0);
+        grid.Children.Add(content);
+        var number = new TextBlock { Text = $"{pageNumber} / {totalPages}", Foreground = (Brush)FindResource("MutedTextBrush"), FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 22, 0, 0) };
+        Grid.SetRow(number, 2);
+        grid.Children.Add(number);
+
+        return new Border
+        {
+            MaxWidth = mode == OfficeViewMode.Presentation ? 920 : 780,
+            MinHeight = mode == OfficeViewMode.Presentation ? 480 : 820,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Background = (Brush)FindResource("PanelBrush"),
+            BorderBrush = (Brush)FindResource("LineBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            Padding = new Thickness(mode == OfficeViewMode.Presentation ? 48 : 54),
+            Margin = new Thickness(24, 10, 24, 10),
+            Child = grid
+        };
+    }
+
     private void ShowTable(TableDocument document)
     {
         TableViewer.ItemsSource = document.Table.DefaultView;
@@ -161,7 +242,7 @@ public partial class MainWindow : Window
 
     private void ShowState(UIElement visible)
     {
-        foreach (var state in new UIElement[] { EmptyState, LoadingState, ErrorState, PdfViewer, TableViewer, ShellViewerContainer })
+        foreach (var state in new UIElement[] { EmptyState, LoadingState, ErrorState, PdfViewer, TableViewer, OfficeViewer, ShellViewerContainer })
             state.Visibility = state == visible ? Visibility.Visible : Visibility.Collapsed;
 
         visible.Opacity = 0;
@@ -185,6 +266,7 @@ public partial class MainWindow : Window
     {
         try { PdfViewer.CoreWebView2?.Stop(); } catch { }
         TableViewer.ItemsSource = null;
+        OfficePagesPanel.Children.Clear();
         _shellPreview?.UnloadPreview();
         _shellPreview = null;
         ShellViewerContainer.Children.Clear();
@@ -270,7 +352,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape && WindowState == WindowState.Maximized) { WindowState = WindowState.Normal; e.Handled = true; }
     }
 
-    private void UpdateButton_Click(object sender, RoutedEventArgs e)
+    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         var updaterPath = FindUpdaterPath();
         if (updaterPath is null)
@@ -281,8 +363,15 @@ public partial class MainWindow : Window
 
         try
         {
-            Process.Start(new ProcessStartInfo(updaterPath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(updaterPath)! });
-            Close();
+            var eventName = $"Local\\DocVista.Updater.Ready.{Guid.NewGuid():N}";
+            using var ready = new EventWaitHandle(false, EventResetMode.ManualReset, eventName);
+            var startInfo = new ProcessStartInfo(updaterPath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(updaterPath)! };
+            startInfo.ArgumentList.Add("--ready-event");
+            startInfo.ArgumentList.Add(eventName);
+            var updater = Process.Start(startInfo);
+            var signaled = await Task.Run(() => ready.WaitOne(TimeSpan.FromSeconds(8)));
+            if (signaled && updater is { HasExited: false }) Close();
+            else MessageBox.Show(this, "更新程序没有成功显示，主程序将保持打开。", "无法启动更新程序", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         catch (Exception exception) { MessageBox.Show(this, exception.Message, "无法启动更新程序", MessageBoxButton.OK, MessageBoxImage.Warning); }
     }
@@ -300,6 +389,13 @@ public partial class MainWindow : Window
         var collapse = SidebarColumn.Width.Value > 0;
         SidebarColumn.Width = collapse ? new GridLength(0) : new GridLength(236);
         _settings.SidebarCollapsed = collapse;
+    }
+
+    private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (ActualWidth < 980) SidebarColumn.Width = new GridLength(0);
+        else if (!_settings.SidebarCollapsed && SidebarColumn.Width.Value == 0) SidebarColumn.Width = new GridLength(236);
+        SearchBox.Width = ActualWidth < 1080 ? 200 : 260;
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

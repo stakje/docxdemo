@@ -15,7 +15,22 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        Loaded += async (_, _) => await CheckForUpdatesAsync();
+        Loaded += MainWindow_Loaded;
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        SignalReadyEvent();
+        await CheckForUpdatesAsync();
+    }
+
+    private static void SignalReadyEvent()
+    {
+        var arguments = Environment.GetCommandLineArgs();
+        var index = Array.FindIndex(arguments, argument => argument.Equals("--ready-event", StringComparison.OrdinalIgnoreCase));
+        if (index < 0 || index + 1 >= arguments.Length) return;
+        try { using var ready = EventWaitHandle.OpenExisting(arguments[index + 1]); ready.Set(); }
+        catch { }
     }
 
     private async Task CheckForUpdatesAsync()

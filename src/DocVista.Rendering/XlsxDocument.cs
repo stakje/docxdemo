@@ -7,7 +7,13 @@ namespace DocVista.Rendering;
 
 public sealed record WorkbookSheet(string Name, string EntryPath);
 
-public sealed class XlsxWorkbook : IDisposable
+public interface ISpreadsheetWorkbook : IDisposable
+{
+    IReadOnlyList<WorkbookSheet> Sheets { get; }
+    TableDocument LoadSheet(WorkbookSheet sheet);
+}
+
+public sealed class XlsxWorkbook : ISpreadsheetWorkbook
 {
     private readonly FileStream _stream;
     private readonly ZipArchive _archive;

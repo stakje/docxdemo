@@ -4,6 +4,10 @@
     <ProjectReference Include="..\DocVista.Core\DocVista.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NPOI" Version="2.7.3" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

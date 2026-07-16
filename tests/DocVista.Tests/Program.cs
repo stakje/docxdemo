@@ -1,16 +1,25 @@
 using DocVista.Core;
 using DocVista.Rendering;
+using NPOI.HSSF.UserModel;
+using NPOI.XWPF.UserModel;
 using System.IO.Compression;
 using System.Text;
 
 var failures = new List<string>();
+var keepFixtures = Environment.GetEnvironmentVariable("DOCVISTA_WRITE_FIXTURES") == "1";
+var fixtureDirectory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "fixtures");
+if (keepFixtures) Directory.CreateDirectory(fixtureDirectory);
 await Run("格式识别", TestDocumentKinds);
 await Run("CSV 解析", TestCsvAsync);
 await Run("XLSX 解析", TestXlsxAsync);
+await Run("DOCX 解析", TestDocxAsync);
+await Run("PPTX 解析", TestPptxAsync);
+await Run("XLS 解析", TestXlsAsync);
+await Run("旧版 Office 兼容模式", TestLegacyOfficeAsync);
 
 if (failures.Count == 0)
 {
-    Console.WriteLine("全部 3 项测试通过。");
+    Console.WriteLine("全部 7 项测试通过。");
     return 0;
 }
 
@@ -51,7 +60,7 @@ async Task TestCsvAsync()
 
 Task TestXlsxAsync()
 {
-    var path = Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.xlsx");
+    var path = FixturePath("xlsx");
     try
     {
         using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
@@ -79,8 +88,86 @@ Task TestXlsxAsync()
         Equal("TRUE", sheet.Table.Rows[1][1]);
         return Task.CompletedTask;
     }
-    finally { File.Delete(path); }
+    finally { if (!keepFixtures) File.Delete(path); }
 }
+
+Task TestDocxAsync()
+{
+    var path = FixturePath("docx");
+    try
+    {
+        using (var document = new XWPFDocument())
+        {
+            document.CreateParagraph().CreateRun().SetText("DocVista 文档标题");
+            document.CreateParagraph().CreateRun().SetText("这是用于验证内置 Word 查看器的正文。");
+            using var stream = File.Create(path);
+            document.Write(stream);
+        }
+        var result = OfficeDocumentLoader.Load(path);
+        Equal(OfficeViewMode.Document, result.Mode);
+        Equal(true, result.Pages.SelectMany(page => page.Blocks).Any(block => block.Text.Contains("内置 Word 查看器")));
+        return Task.CompletedTask;
+    }
+    finally { if (!keepFixtures) File.Delete(path); }
+}
+
+Task TestPptxAsync()
+{
+    var path = FixturePath("pptx");
+    try
+    {
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            Add(archive, "ppt/slides/slide1.xml", """
+                <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>产品路线</a:t></a:r></a:p><a:p><a:r><a:t>第一阶段完成</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>
+                """);
+        var result = OfficeDocumentLoader.Load(path);
+        Equal(OfficeViewMode.Presentation, result.Mode);
+        Equal("产品路线", result.Pages[0].Title);
+        Equal("第一阶段完成", result.Pages[0].Blocks[0].Text);
+        return Task.CompletedTask;
+    }
+    finally { if (!keepFixtures) File.Delete(path); }
+}
+
+Task TestXlsAsync()
+{
+    var path = FixturePath("xls");
+    try
+    {
+        using (var workbook = new HSSFWorkbook())
+        {
+            var sheet = workbook.CreateSheet("数据");
+            sheet.CreateRow(0).CreateCell(0).SetCellValue("项目");
+            sheet.CreateRow(1).CreateCell(0).SetCellValue("DocVista");
+            using var stream = File.Create(path);
+            workbook.Write(stream, true);
+        }
+        using var result = LegacyXlsWorkbook.Open(path);
+        var table = result.LoadSheet(result.Sheets[0]);
+        Equal("DocVista", table.Table.Rows[1][0]);
+        return Task.CompletedTask;
+    }
+    finally { if (!keepFixtures) File.Delete(path); }
+}
+
+async Task TestLegacyOfficeAsync()
+{
+    var path = FixturePath("doc");
+    try
+    {
+        var prefix = Enumerable.Repeat((byte)0x01, 64).ToArray();
+        var text = Encoding.Unicode.GetBytes("旧版文档兼容内容测试");
+        await File.WriteAllBytesAsync(path, prefix.Concat(text).Concat(new byte[16]).ToArray());
+        var result = OfficeDocumentLoader.Load(path);
+        Equal(OfficeViewMode.CompatibilityText, result.Mode);
+        Equal(true, result.Pages.SelectMany(page => page.Blocks).Any(block => block.Text.Contains("旧版文档兼容内容")));
+    }
+    finally { if (!keepFixtures) File.Delete(path); }
+}
+
+string FixturePath(string extension) => keepFixtures
+    ? Path.Combine(fixtureDirectory, $"sample.{extension}")
+    : Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.{extension}");
 
 static void Add(ZipArchive archive, string path, string content)
 {

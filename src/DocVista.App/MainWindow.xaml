@@ -10,7 +10,7 @@
         WindowStyle="None" ResizeMode="CanResize" Background="{StaticResource BoneSoftBrush}"
         FontFamily="{StaticResource UiFont}" Foreground="{StaticResource TextBrush}"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
+        PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing" SizeChanged="Window_SizeChanged">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="48" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
@@ -80,7 +80,7 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Button Grid.Row="4" Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click">
+                    <Button Grid.Row="4" Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click" AutomationProperties.Name="检查更新">
                         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="检查更新"/></StackPanel>
                     </Button>
                 </Grid>
@@ -93,10 +93,11 @@
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Style="{StaticResource IconButton}" Content="&#xE700;" ToolTip="折叠侧栏" Click="SidebarButton_Click" shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock x:Name="DocumentTitle" Text="DocVista" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="DocumentMeta" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <Grid Grid.Column="1" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DocumentTitle" Text="DocVista" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="DocumentMeta" Grid.Column="1" Foreground="{StaticResource MutedTextBrush}" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                             <Button Style="{StaticResource IconButton}" Content="&#xE921;" ToolTip="最小化" Click="MinimizeButton_Click"/>
                             <Button x:Name="MaximizeButton" Style="{StaticResource IconButton}" Content="&#xE922;" ToolTip="最大化" Click="MaximizeButton_Click"/>
@@ -126,7 +127,7 @@
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="2" x:Name="ViewerArea" Background="{StaticResource CanvasBrush}">
+                <Grid Grid.Row="2" x:Name="ViewerArea" Background="{StaticResource CanvasBrush}" ClipToBounds="True">
                     <Grid x:Name="EmptyState">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460">
                             <Border Width="72" Height="82" CornerRadius="7" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
@@ -193,6 +194,9 @@
                             </Style>
                         </DataGrid.CellStyle>
                     </DataGrid>
+                    <ScrollViewer x:Name="OfficeViewer" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{StaticResource CanvasBrush}">
+                        <StackPanel x:Name="OfficePagesPanel" Margin="0,12,0,24"/>
+                    </ScrollViewer>
                     <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="{StaticResource PanelBrush}"/>
                 </Grid>
 
