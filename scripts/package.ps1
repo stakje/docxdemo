@@ -1,8 +1,9 @@
 param(
-    [string]$Version = "0.1.3",
+    [string]$Version = "0.1.4",
     [ValidateSet("win", "beta")][string]$Channel = "win",
     [string]$UpdateFeedUrl = "",
     [string]$SignParams = "",
+    [string]$InnoCompiler = "",
     [switch]$KeepUpdateAssets
 )
 
@@ -19,6 +20,22 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
 if (Test-Path $publishDir) { Remove-Item -LiteralPath $publishDir -Recurse -Force }
 if (Test-Path $installerDir) { Remove-Item -LiteralPath $installerDir -Recurse -Force }
 New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
+if (Test-Path $releaseDir)
+{
+    $staleReleaseFiles = @(
+        "DocVista-$Version-full.nupkg",
+        "DocVista-$Version-delta.nupkg",
+        "DocVista-$Channel-Setup.exe",
+        "assets.$Channel.json",
+        "releases.$Channel.json",
+        "RELEASES"
+    )
+    foreach ($fileName in $staleReleaseFiles)
+    {
+        $path = Join-Path $releaseDir $fileName
+        if (Test-Path $path) { Remove-Item -LiteralPath $path -Force }
+    }
+}
 
 & $dotnet tool restore
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -42,20 +59,42 @@ $packArguments = @(
     "--channel", $Channel,
     "--runtime", "win-x64",
     "--mainExe", "DocVista.exe",
+    "--icon", (Join-Path $root "assets\DocVista.ico"),
     "--packTitle", "DocVista",
     "--packAuthors", "DocVista",
     "--releaseNotes", (Join-Path $root "CHANGELOG.md"),
     "--noPortable", "true",
-    "--shortcuts", "Desktop,StartMenuRoot",
+    "--shortcuts", "StartMenuRoot",
     "--splashProgressColor", "#80A3C8"
 )
 if ($SignParams) { $packArguments += @("--signParams", $SignParams) }
 & $dotnet @packArguments
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$setupPath = Join-Path $releaseDir "DocVista-$Channel-Setup.exe"
-if (-not (Test-Path $setupPath)) { throw "Setup was not generated: $setupPath" }
-Copy-Item -LiteralPath $setupPath -Destination (Join-Path $installerDir "DocVista-$Channel-Setup.exe") -Force
+$velopackSetupPath = Join-Path $releaseDir "DocVista-$Channel-Setup.exe"
+if (-not (Test-Path $velopackSetupPath)) { throw "Velopack bootstrapper was not generated: $velopackSetupPath" }
+
+if (-not $InnoCompiler)
+{
+    $command = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+    $candidates = @(
+        $command.Source,
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+    $InnoCompiler = $candidates | Select-Object -First 1
+}
+if (-not $InnoCompiler -or -not (Test-Path $InnoCompiler))
+{
+    throw "Inno Setup 6 compiler was not found. Install Inno Setup or pass -InnoCompiler."
+}
+
+& $InnoCompiler "/DMyAppVersion=$Version" "/DMyChannel=$Channel" "/DVelopackSetupPath=$velopackSetupPath" "/DOutputDir=$installerDir" (Join-Path $root "installer\DocVista.iss")
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$setupPath = Join-Path $installerDir "DocVista-$Channel-Setup.exe"
+if (-not (Test-Path $setupPath)) { throw "Classic Setup was not generated: $setupPath" }
 
 if (-not $KeepUpdateAssets)
 {
@@ -63,4 +102,4 @@ if (-not $KeepUpdateAssets)
     Remove-Item -LiteralPath (Join-Path $root "artifacts\publish") -Recurse -Force
 }
 
-Write-Host "Setup: $(Join-Path $installerDir "DocVista-$Channel-Setup.exe")"
+Write-Host "Setup: $setupPath"

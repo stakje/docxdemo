@@ -5,7 +5,8 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <AssemblyName>DocVista.Updater</AssemblyName>
     <RootNamespace>DocVista.Updater</RootNamespace>
-    <Version>0.1.3</Version>
+    <Version>0.1.4</Version>
+    <ApplicationIcon>..\..\assets\DocVista.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
