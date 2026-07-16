@@ -7,7 +7,7 @@
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
         Title="DocVista" Width="1240" Height="780" MinWidth="860" MinHeight="560"
-        WindowStyle="None" ResizeMode="CanResize" Background="#F3F5F4"
+        WindowStyle="None" ResizeMode="CanResize" Background="{StaticResource BoneSoftBrush}"
         FontFamily="{StaticResource UiFont}" Foreground="{StaticResource TextBrush}"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
         PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing">
@@ -15,14 +15,14 @@
         <shell:WindowChrome CaptionHeight="48" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
 
-    <Border BorderBrush="#C9CFCC" BorderThickness="1">
+    <Border BorderBrush="{StaticResource OuterSpaceBrush}" BorderThickness="1">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="236"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="#202522" Padding="14,0,14,14">
+            <Border Grid.Column="0" Background="{StaticResource OuterSpaceBrush}" Padding="14,0,14,14">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="58"/>
@@ -32,10 +32,10 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="6" Background="#13A087">
-                            <TextBlock Text="D" Foreground="White" FontWeight="Bold" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border Width="28" Height="28" CornerRadius="6" Background="{StaticResource BoneBrush}">
+                            <TextBlock Text="D" Foreground="{StaticResource OuterSpaceBrush}" FontWeight="Bold" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Text="DocVista" Foreground="White" FontSize="16" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="DocVista" Foreground="{StaticResource SidebarTextBrush}" FontSize="16" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                     <Button Grid.Row="1" Style="{StaticResource PrimaryButton}" Click="OpenButton_Click" HorizontalContentAlignment="Left">
                         <StackPanel Orientation="Horizontal">
@@ -44,11 +44,11 @@
                             <TextBlock Text="Ctrl+O" Opacity="0.65" Margin="42,0,0,0" FontSize="11"/>
                         </StackPanel>
                     </Button>
-                    <TextBlock Grid.Row="2" Text="最近打开" Foreground="#94A19A" FontSize="11" Margin="4,8,0,0"/>
+                    <TextBlock Grid.Row="2" Text="最近打开" Foreground="{StaticResource SidebarMutedBrush}" FontSize="11" Margin="4,8,0,0"/>
                     <ListBox x:Name="RecentList" Grid.Row="3" Background="Transparent" BorderThickness="0" Margin="-4,8,-4,0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="RecentList_SelectionChanged">
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem">
-                                <Setter Property="Padding" Value="8,8"/><Setter Property="Margin" Value="0,1"/><Setter Property="Foreground" Value="#E9EEEB"/>
+                                <Setter Property="Padding" Value="8,8"/><Setter Property="Margin" Value="0,1"/><Setter Property="Foreground" Value="{StaticResource SidebarTextBrush}"/>
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
@@ -57,8 +57,8 @@
                                                 <ContentPresenter/>
                                             </Border>
                                             <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#2C332F"/></Trigger>
-                                                <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#34443E"/></Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#354652"/></Trigger>
+                                                <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#425766"/></Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Setter.Value>
@@ -69,18 +69,18 @@
                             <DataTemplate>
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                    <Border Width="24" Height="28" CornerRadius="4" Background="#36403B" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Extension}" Foreground="#B7C3BD" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Border Width="24" Height="28" CornerRadius="4" Background="{StaticResource DarkLavaBrush}" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Extension}" Foreground="{StaticResource BoneBrush}" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12"/>
-                                        <TextBlock Text="{Binding Directory}" TextTrimming="CharacterEllipsis" Foreground="#88958E" FontSize="10" Margin="0,2,0,0"/>
+                                        <TextBlock Text="{Binding Directory}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource SidebarMutedBrush}" FontSize="10" Margin="0,2,0,0"/>
                                     </StackPanel>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-                    <Button Grid.Row="4" Background="Transparent" BorderThickness="0" Foreground="#AAB5AF" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click">
+                    <Button Grid.Row="4" Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click">
                         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="检查更新"/></StackPanel>
                     </Button>
                 </Grid>
@@ -89,7 +89,7 @@
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="48"/><RowDefinition Height="*"/><RowDefinition Height="30"/></Grid.RowDefinitions>
 
-                <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Border Grid.Row="0" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Style="{StaticResource IconButton}" Content="&#xE700;" ToolTip="折叠侧栏" Click="SidebarButton_Click" shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
@@ -100,12 +100,12 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
                             <Button Style="{StaticResource IconButton}" Content="&#xE921;" ToolTip="最小化" Click="MinimizeButton_Click"/>
                             <Button x:Name="MaximizeButton" Style="{StaticResource IconButton}" Content="&#xE922;" ToolTip="最大化" Click="MaximizeButton_Click"/>
-                            <Button x:Name="CloseButton" Width="46" Height="36" Background="Transparent" BorderThickness="0" FontFamily="Segoe MDL2 Assets" Content="&#xE8BB;" ToolTip="关闭" Click="CloseButton_Click"/>
+                            <Button x:Name="CloseButton" Style="{StaticResource IconButton}" Width="46" Content="&#xE8BB;" ToolTip="关闭" Click="CloseButton_Click"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1" Background="#FAFBFA" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,0">
+                <Border Grid.Row="1" Background="{StaticResource BoneBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,0">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -113,7 +113,7 @@
                             <Separator Margin="6,8" Background="{StaticResource LineBrush}"/>
                             <ComboBox x:Name="SheetSelector" Width="170" Height="30" Visibility="Collapsed" SelectionChanged="SheetSelector_SelectionChanged"/>
                         </StackPanel>
-                        <Border Grid.Column="1" x:Name="SearchBox" Width="260" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5" Visibility="Collapsed">
+                        <Border Grid.Column="1" x:Name="SearchBox" Width="260" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="5" Visibility="Collapsed">
                             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="34"/><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
                                 <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 <TextBox x:Name="SearchInput" Grid.Column="1" BorderThickness="0" Background="Transparent" VerticalContentAlignment="Center" FontSize="12" TextChanged="SearchInput_TextChanged"/>
@@ -126,47 +126,79 @@
                     </Grid>
                 </Border>
 
-                <Grid Grid.Row="2" x:Name="ViewerArea" Background="#E9ECEA">
+                <Grid Grid.Row="2" x:Name="ViewerArea" Background="{StaticResource CanvasBrush}">
                     <Grid x:Name="EmptyState">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460">
-                            <Border Width="72" Height="82" CornerRadius="7" Background="White" BorderBrush="#D7DEDA" BorderThickness="1">
-                                <Grid><TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" Foreground="#087A68" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
+                            <Border Width="72" Height="82" CornerRadius="7" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                                <Grid><TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource OuterSpaceBrush}" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
                             </Border>
                             <TextBlock Text="打开一份文档" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,22,0,8"/>
                             <TextBlock Text="拖放文件到这里，或从电脑中选择" Foreground="{StaticResource MutedTextBrush}" FontSize="13" HorizontalAlignment="Center"/>
                             <Button Style="{StaticResource PrimaryButton}" Content="选择文档" Width="112" Margin="0,22,0,0" Click="OpenButton_Click"/>
-                            <TextBlock Text="PDF · DOCX · DOC · PPTX · PPT · XLSX · XLS · CSV" Foreground="#8B948F" FontSize="10" HorizontalAlignment="Center" Margin="0,18,0,0"/>
+                            <TextBlock Text="PDF · DOCX · DOC · PPTX · PPT · XLSX · XLS · CSV" Foreground="{StaticResource WengeBrush}" FontSize="10" HorizontalAlignment="Center" Margin="0,18,0,0"/>
                         </StackPanel>
                     </Grid>
 
-                    <Grid x:Name="LoadingState" Visibility="Collapsed" Background="#F4F6F5">
+                    <Grid x:Name="LoadingState" Visibility="Collapsed" Background="{StaticResource BoneSoftBrush}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                             <ProgressBar Width="180" Height="3" IsIndeterminate="True" Foreground="{StaticResource AccentBrush}"/>
                             <TextBlock x:Name="LoadingText" Text="正在打开文档…" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,14,0,0" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
 
-                    <Grid x:Name="ErrorState" Visibility="Collapsed" Background="#F4F6F5">
+                    <Grid x:Name="ErrorState" Visibility="Collapsed" Background="{StaticResource BoneSoftBrush}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480">
-                            <TextBlock Text="&#xEA39;" FontFamily="Segoe MDL2 Assets" Foreground="#BC5B48" FontSize="30" HorizontalAlignment="Center"/>
+                            <TextBlock Text="&#xEA39;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource WengeBrush}" FontSize="30" HorizontalAlignment="Center"/>
                             <TextBlock Text="无法预览此文档" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6"/>
                             <TextBlock x:Name="ErrorText" TextWrapping="Wrap" TextAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="12"/>
                             <Button Style="{StaticResource PrimaryButton}" Content="选择其他文件" Margin="0,18,0,0" Click="OpenButton_Click"/>
                         </StackPanel>
                     </Grid>
 
-                    <wv2:WebView2 x:Name="PdfViewer" Visibility="Collapsed" DefaultBackgroundColor="#E9ECEA"/>
-                    <DataGrid x:Name="TableViewer" Visibility="Collapsed" Margin="12" Background="White" BorderBrush="#D6DCD8" BorderThickness="1"
+                    <wv2:WebView2 x:Name="PdfViewer" Visibility="Collapsed" DefaultBackgroundColor="#D1CBC2"/>
+                    <DataGrid x:Name="TableViewer" Visibility="Collapsed" Margin="12" Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True" CanUserResizeColumns="True"
-                              HeadersVisibility="All" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#EDF0EE" VerticalGridLinesBrush="#F4F6F5"
-                              RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="#FAFBFA"
-                              EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"/>
-                    <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="White"/>
+                              HeadersVisibility="All" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E5DED5" VerticalGridLinesBrush="#EEE8E1"
+                              RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="#F2EDE6"
+                              SelectionUnit="FullRow"
+                              EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="{StaticResource BoneBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource OuterSpaceBrush}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="Padding" Value="8,0"/>
+                                <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+                                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
+                        <DataGrid.RowHeaderStyle>
+                            <Style TargetType="DataGridRowHeader">
+                                <Setter Property="Background" Value="{StaticResource BoneSoftBrush}"/>
+                                <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+                                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                            </Style>
+                        </DataGrid.RowHeaderStyle>
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Padding" Value="6,0"/>
+                                <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter Property="Background" Value="#C7D8E8"/>
+                                        <Setter Property="Foreground" Value="{StaticResource OuterSpaceBrush}"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
+                    </DataGrid>
+                    <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="{StaticResource PanelBrush}"/>
                 </Grid>
 
-                <Border Grid.Row="3" Background="#FAFBFA" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,0">
+                <Border Grid.Row="3" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,0">
                     <Grid><TextBlock x:Name="StatusText" Text="就绪" Foreground="{StaticResource MutedTextBrush}" FontSize="10" VerticalAlignment="Center"/>
-                        <TextBlock Text="只读模式" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#5D6A63" FontSize="10"/>
+                        <TextBlock Text="只读模式" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource WengeBrush}" FontSize="10"/>
                     </Grid>
                 </Border>
             </Grid>

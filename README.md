@@ -2,6 +2,8 @@
 
 DocVista 是轻量、只读的 Windows 文档查看器，首版支持 PDF、Word、PowerPoint、Excel 和 CSV。
 
+Setup 会同时安装 `DocVista.exe` 和独立的 `DocVista.Updater.exe`。主程序的“检查更新”会启动更新程序，由更新程序下载完整或差分包、显示进度并完成重启。
+
 ## 开发
 
 需要 Windows 10/11、.NET 8 SDK 和 WebView2 Runtime。
@@ -16,7 +18,7 @@ DocVista 是轻量、只读的 Windows 文档查看器，首版支持 PDF、Word
 ## 打包
 
 ```powershell
-.\scripts\package.ps1 -Version 0.1.0 -UpdateFeedUrl https://updates.example.com/docvista/win
+.\scripts\package.ps1 -Version 0.1.1 -UpdateFeedUrl https://updates.example.com/docvista/win
 ```
 
 正式发布时通过 `-SignParams` 传入 `signtool` 参数。稳定通道使用 `win`，测试通道使用 `beta`。生成物位于 `artifacts\releases`。

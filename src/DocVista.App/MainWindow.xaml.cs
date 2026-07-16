@@ -19,7 +19,6 @@ namespace DocVista.App;
 public partial class MainWindow : Window
 {
     private readonly SettingsStore _settingsStore = new();
-    private readonly UpdateService _updateService = new();
     private readonly AppSettings _settings;
     private CancellationTokenSource? _openCancellation;
     private XlsxWorkbook? _workbook;
@@ -271,18 +270,29 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape && WindowState == WindowState.Maximized) { WindowState = WindowState.Normal; e.Handled = true; }
     }
 
-    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
+    private void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
-        StatusText.Text = "正在检查更新…";
+        var updaterPath = FindUpdaterPath();
+        if (updaterPath is null)
+        {
+            MessageBox.Show(this, "未找到 DocVista.Updater.exe。请使用 Setup 安装版本，或先构建更新程序项目。", "无法启动更新程序", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         try
         {
-            var result = await _updateService.CheckAsync();
-            StatusText.Text = result.Message;
-            if (!result.Available || result.Update is null) { MessageBox.Show(this, result.Message, "DocVista 更新", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-            if (MessageBox.Show(this, $"{result.Message}，现在下载并安装吗？", "DocVista 更新", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            await _updateService.DownloadAndRestartAsync(result.Update, progress => Dispatcher.Invoke(() => StatusText.Text = $"正在下载更新 {progress}%"));
+            Process.Start(new ProcessStartInfo(updaterPath) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(updaterPath)! });
+            Close();
         }
-        catch (Exception exception) { StatusText.Text = "更新检查失败"; MessageBox.Show(this, exception.Message, "无法检查更新", MessageBoxButton.OK, MessageBoxImage.Warning); }
+        catch (Exception exception) { MessageBox.Show(this, exception.Message, "无法启动更新程序", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    private static string? FindUpdaterPath()
+    {
+        var installed = Path.Combine(AppContext.BaseDirectory, "DocVista.Updater.exe");
+        if (File.Exists(installed)) return installed;
+        var development = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "DocVista.Updater", "bin", "Debug", "net8.0-windows", "DocVista.Updater.exe"));
+        return File.Exists(development) ? development : null;
     }
 
     private void SidebarButton_Click(object sender, RoutedEventArgs e)

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version = "0.1.1",
     [ValidateSet("win", "beta")][string]$Channel = "win",
     [string]$UpdateFeedUrl = "",
     [string]$SignParams = ""
@@ -17,6 +17,8 @@ $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE = "1"
 & $dotnet tool restore
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $dotnet publish (Join-Path $root "src\DocVista.App\DocVista.App.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=false -o $publishDir -m:1
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $dotnet publish (Join-Path $root "src\DocVista.Updater\DocVista.Updater.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=false -o $publishDir -m:1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if ($UpdateFeedUrl)
@@ -38,7 +40,7 @@ $packArguments = @(
     "--packAuthors", "DocVista",
     "--releaseNotes", (Join-Path $root "CHANGELOG.md"),
     "--shortcuts", "StartMenuRoot",
-    "--splashProgressColor", "#087A68"
+    "--splashProgressColor", "#80A3C8"
 )
 if ($SignParams) { $packArguments += @("--signParams", $SignParams) }
 & $dotnet @packArguments
