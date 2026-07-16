@@ -1,0 +1,21 @@
+# Build output
+bin/
+obj/
+artifacts/
+Releases/
+
+# Local SDK and caches
+.dotnet/
+.dotnet-home/
+.dotnet-install.ps1
+build-diagnostic.log
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.pdb
+
+# Runtime state
+update-feed.txt

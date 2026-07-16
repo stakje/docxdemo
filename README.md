@@ -1,0 +1,29 @@
+# DocVista
+
+DocVista 是轻量、只读的 Windows 文档查看器，首版支持 PDF、Word、PowerPoint、Excel 和 CSV。
+
+## 开发
+
+需要 Windows 10/11、.NET 8 SDK 和 WebView2 Runtime。
+
+```powershell
+.\scripts\build.ps1
+.\scripts\test.ps1
+.\scripts\dev.ps1
+.\scripts\dev.ps1 -Document .\sample.pdf
+```
+
+## 打包
+
+```powershell
+.\scripts\package.ps1 -Version 0.1.0 -UpdateFeedUrl https://updates.example.com/docvista/win
+```
+
+正式发布时通过 `-SignParams` 传入 `signtool` 参数。稳定通道使用 `win`，测试通道使用 `beta`。生成物位于 `artifacts\releases`。
+
+## 格式说明
+
+- PDF 由 WebView2 Runtime 查看。
+- CSV 和 XLSX 无需安装 Office。
+- DOC、DOCX、PPT、PPTX 和 XLS 使用系统 Preview Handler，需要 Office 或兼容组件。
+- 应用不修改源文件。
