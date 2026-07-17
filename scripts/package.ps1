@@ -1,10 +1,8 @@
 param(
-    [string]$Version = "0.1.4",
+    [string]$Version = "0.1.5",
     [ValidateSet("win", "beta")][string]$Channel = "win",
-    [string]$UpdateFeedUrl = "",
     [string]$SignParams = "",
-    [string]$InnoCompiler = "",
-    [switch]$KeepUpdateAssets
+    [string]$InnoCompiler = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,15 +39,6 @@ if (Test-Path $releaseDir)
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $dotnet publish (Join-Path $root "src\DocVista.App\DocVista.App.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=false -o $publishDir -m:1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $dotnet publish (Join-Path $root "src\DocVista.Updater\DocVista.Updater.csproj") -c Release -r win-x64 --self-contained true -p:Version=$Version -p:PublishSingleFile=false -o $publishDir -m:1
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-if ($UpdateFeedUrl)
-{
-    $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText((Join-Path $publishDir "update-feed.txt"), $UpdateFeedUrl, $utf8WithoutBom)
-}
-
 $packArguments = @(
     "tool", "run", "vpk", "--", "pack",
     "--packId", "DocVista",
@@ -96,10 +85,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $setupPath = Join-Path $installerDir "DocVista-$Channel-Setup.exe"
 if (-not (Test-Path $setupPath)) { throw "Classic Setup was not generated: $setupPath" }
 
-if (-not $KeepUpdateAssets)
-{
-    Remove-Item -LiteralPath $releaseDir -Recurse -Force
-    Remove-Item -LiteralPath (Join-Path $root "artifacts\publish") -Recurse -Force
-}
+Remove-Item -LiteralPath $releaseDir -Recurse -Force
+Remove-Item -LiteralPath (Join-Path $root "artifacts\publish") -Recurse -Force
 
 Write-Host "Setup: $setupPath"

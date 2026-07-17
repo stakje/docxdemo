@@ -41,6 +41,22 @@ public sealed class ShellPreviewHost : HwndHost
         Marshal.ThrowExceptionForHR(handler.DoPreview());
     }
 
+    public bool TryAdjustZoom(int direction, int steps = 1)
+    {
+        if (_previewHandler is null || direction == 0 || steps <= 0) return false;
+        try
+        {
+            _previewHandler.SetFocus();
+            _previewHandler.QueryFocus(out var focusedWindow);
+            var target = focusedWindow == IntPtr.Zero ? _hostWindow : focusedWindow;
+            var delta = direction > 0 ? 120 : -120;
+            var wheelParameters = new IntPtr((delta << 16) | 0x0008);
+            for (var index = 0; index < steps; index++) SendMessage(target, 0x020A, wheelParameters, IntPtr.Zero);
+            return true;
+        }
+        catch { return false; }
+    }
+
     protected override void OnWindowPositionChanged(System.Windows.Rect rcBoundingBox)
     {
         base.OnWindowPositionChanged(rcBoundingBox);
@@ -123,4 +139,5 @@ public sealed class ShellPreviewHost : HwndHost
     private static extern IntPtr CreateWindowEx(int exStyle, string className, string windowName, int style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out PreviewRect rect);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
 }

@@ -10,7 +10,7 @@
         WindowStyle="None" ResizeMode="CanResize" Background="{StaticResource BoneSoftBrush}"
         FontFamily="{StaticResource UiFont}" Foreground="{StaticResource TextBrush}"
         AllowDrop="True" Drop="Window_Drop" DragOver="Window_DragOver"
-        PreviewKeyDown="Window_PreviewKeyDown" Closing="Window_Closing" SizeChanged="Window_SizeChanged">
+        PreviewKeyDown="Window_PreviewKeyDown" PreviewMouseWheel="Window_PreviewMouseWheel" Closing="Window_Closing" SizeChanged="Window_SizeChanged">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="48" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </shell:WindowChrome.WindowChrome>
@@ -68,7 +68,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="28"/></Grid.ColumnDefinitions>
                                     <Border Width="24" Height="28" CornerRadius="4" Background="{StaticResource DarkLavaBrush}" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Extension}" Foreground="{StaticResource BoneBrush}" FontSize="8" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
@@ -76,13 +76,14 @@
                                         <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="12"/>
                                         <TextBlock Text="{Binding Directory}" TextTrimming="CharacterEllipsis" Foreground="{StaticResource SidebarMutedBrush}" FontSize="10" Margin="0,2,0,0"/>
                                     </StackPanel>
+                                    <Button Grid.Column="2" Style="{StaticResource IconButton}" Width="28" Height="28" Foreground="{StaticResource SidebarMutedBrush}" Content="&#xE74D;" Tag="{Binding Path}" ToolTip="删除记录" Focusable="False" PreviewMouseLeftButtonDown="RemoveRecentButton_PreviewMouseLeftButtonDown" Click="RemoveRecentButton_Click" AutomationProperties.Name="删除最近记录"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
                     <StackPanel Grid.Row="4">
-                        <Button Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UpdateButton_Click" AutomationProperties.Name="检查更新">
-                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="检查更新"/></StackPanel>
+                        <Button Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="SettingsButton_Click" AutomationProperties.Name="设置">
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="设置"/></StackPanel>
                         </Button>
                         <Button Background="Transparent" BorderThickness="0" Foreground="{StaticResource SidebarMutedBrush}" HorizontalContentAlignment="Left" Padding="5,8" Cursor="Hand" Click="UninstallButton_Click" AutomationProperties.Name="卸载 DocVista">
                             <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" Margin="0,0,9,0"/><TextBlock Text="卸载 DocVista"/></StackPanel>
@@ -127,7 +128,11 @@
                             </Grid>
                         </Border>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock x:Name="TableSummary" Foreground="{StaticResource MutedTextBrush}" FontSize="11" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TableSummary" MaxWidth="130" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedTextBrush}" FontSize="11" VerticalAlignment="Center"/>
+                            <Separator Margin="8,8" Background="{StaticResource LineBrush}"/>
+                            <Button Style="{StaticResource IconButton}" Width="30" Height="30" Content="&#xE71F;" ToolTip="缩小 (Ctrl+-)" Click="ZoomOutButton_Click" AutomationProperties.Name="缩小"/>
+                            <Button x:Name="ZoomResetButton" Style="{StaticResource IconButton}" Width="48" Height="30" FontFamily="{StaticResource UiFont}" FontSize="11" Content="100%" ToolTip="重置缩放 (Ctrl+0)" Click="ZoomResetButton_Click" AutomationProperties.Name="重置缩放"/>
+                            <Button Style="{StaticResource IconButton}" Width="30" Height="30" Content="&#xE8A3;" ToolTip="放大 (Ctrl++)" Click="ZoomInButton_Click" AutomationProperties.Name="放大"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -164,10 +169,11 @@
                     <wv2:WebView2 x:Name="PdfViewer" Visibility="Collapsed" DefaultBackgroundColor="#D1CBC2"/>
                     <DataGrid x:Name="TableViewer" Visibility="Collapsed" Margin="12" Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True" CanUserResizeColumns="True"
-                              HeadersVisibility="All" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#E5DED5" VerticalGridLinesBrush="#EEE8E1"
+                              HeadersVisibility="All" GridLinesVisibility="All" HorizontalGridLinesBrush="#E5DED5" VerticalGridLinesBrush="#DED6CB"
                               RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="#F2EDE6"
                               SelectionUnit="FullRow"
                               EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <DataGrid.LayoutTransform><ScaleTransform x:Name="TableScaleTransform" ScaleX="1" ScaleY="1"/></DataGrid.LayoutTransform>
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
                                 <Setter Property="Background" Value="{StaticResource BoneBrush}"/>
@@ -200,7 +206,9 @@
                         </DataGrid.CellStyle>
                     </DataGrid>
                     <ScrollViewer x:Name="OfficeViewer" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{StaticResource CanvasBrush}">
-                        <StackPanel x:Name="OfficePagesPanel" Margin="0,12,0,24"/>
+                        <StackPanel x:Name="OfficePagesPanel" Margin="0,12,0,24">
+                            <StackPanel.LayoutTransform><ScaleTransform x:Name="OfficeScaleTransform" ScaleX="1" ScaleY="1"/></StackPanel.LayoutTransform>
+                        </StackPanel>
                     </ScrollViewer>
                     <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="{StaticResource PanelBrush}"/>
                 </Grid>

@@ -21,13 +21,6 @@ jobs:
       - run: dotnet restore DocVista.sln
       - run: dotnet build DocVista.sln -c Release --no-restore
       - run: dotnet run --project tests/DocVista.Tests/DocVista.Tests.csproj -c Release --no-build
-      - name: Download previous release
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download --pattern "DocVista-*-full.nupkg" --dir artifacts/releases
       - name: Install Inno Setup
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -35,7 +28,7 @@ jobs:
       - name: Package
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
-        run: .\scripts\package.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v') -UpdateFeedUrl "https://github.com/$env:GITHUB_REPOSITORY/releases/latest/download" -KeepUpdateAssets
+        run: .\scripts\package.ps1 -Version $env:GITHUB_REF_NAME.TrimStart('v')
       - uses: actions/upload-artifact@v4
         if: startsWith(github.ref, 'refs/tags/v')
         with:
@@ -47,15 +40,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $names = @(
-            'DocVista-win-Setup.exe',
-            "DocVista-$version-full.nupkg",
-            "DocVista-$version-delta.nupkg",
-            'assets.win.json',
-            'RELEASES',
-            'releases.win.json'
-          )
           $files = @('artifacts/installer/DocVista-win-Setup.exe')
-          $files += $names | Where-Object { $_ -ne 'DocVista-win-Setup.exe' } | ForEach-Object { Join-Path 'artifacts/releases' $_ } | Where-Object { Test-Path $_ }
           gh release create $env:GITHUB_REF_NAME @files --title $env:GITHUB_REF_NAME --generate-notes

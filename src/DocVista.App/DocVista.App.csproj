@@ -20,7 +20,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <AssemblyName>DocVista</AssemblyName>
     <RootNamespace>DocVista.App</RootNamespace>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <ApplicationIcon>..\..\assets\DocVista.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>DocVista.App.App</StartupObject>

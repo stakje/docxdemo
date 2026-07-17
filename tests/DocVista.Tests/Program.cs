@@ -10,6 +10,7 @@ var keepFixtures = Environment.GetEnvironmentVariable("DOCVISTA_WRITE_FIXTURES")
 var fixtureDirectory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "fixtures");
 if (keepFixtures) Directory.CreateDirectory(fixtureDirectory);
 await Run("格式识别", TestDocumentKinds);
+await Run("设置归一化", TestSettings);
 await Run("CSV 解析", TestCsvAsync);
 await Run("XLSX 解析", TestXlsxAsync);
 await Run("DOCX 解析", TestDocxAsync);
@@ -19,8 +20,27 @@ await Run("旧版 Office 兼容模式", TestLegacyOfficeAsync);
 
 if (failures.Count == 0)
 {
-    Console.WriteLine("全部 7 项测试通过。");
+    Console.WriteLine("全部 8 项测试通过。");
     return 0;
+}
+
+Task TestSettings()
+{
+    var settings = new AppSettings
+    {
+        DefaultZoomPercent = 10,
+        CurrentZoomPercent = 500,
+        ZoomStepPercent = 2,
+        RecentDocumentLimit = 100,
+        SpreadsheetRowHeight = 8
+    };
+    settings.Normalize();
+    Equal(50, settings.DefaultZoomPercent);
+    Equal(200, settings.CurrentZoomPercent);
+    Equal(5, settings.ZoomStepPercent);
+    Equal(30, settings.RecentDocumentLimit);
+    Equal(24d, settings.SpreadsheetRowHeight);
+    return Task.CompletedTask;
 }
 
 foreach (var failure in failures) Console.Error.WriteLine(failure);
@@ -98,14 +118,34 @@ Task TestDocxAsync()
     {
         using (var document = new XWPFDocument())
         {
-            document.CreateParagraph().CreateRun().SetText("DocVista 文档标题");
+            var title = document.CreateParagraph();
+            title.Alignment = ParagraphAlignment.CENTER;
+            var titleRun = title.CreateRun();
+            titleRun.IsBold = true;
+            titleRun.FontSize = 18;
+            titleRun.SetText("DocVista 文档标题");
+            var table = document.CreateTable(1, 2);
+            table.GetRow(0).GetCell(0).SetText("项目");
+            table.GetRow(0).GetCell(1).SetText("状态");
+            var imageParagraph = document.CreateParagraph();
+            using (var imageStream = new MemoryStream(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")))
+                imageParagraph.CreateRun().AddPicture(imageStream, (int)PictureType.PNG, "pixel.png", 914400, 914400);
             document.CreateParagraph().CreateRun().SetText("这是用于验证内置 Word 查看器的正文。");
             using var stream = File.Create(path);
             document.Write(stream);
         }
         var result = OfficeDocumentLoader.Load(path);
         Equal(OfficeViewMode.Document, result.Mode);
-        Equal(true, result.Pages.SelectMany(page => page.Blocks).Any(block => block.Text.Contains("内置 Word 查看器")));
+        var blocks = result.Pages.SelectMany(page => page.Blocks).ToList();
+        Equal("DocVista 文档标题", blocks[0].Text);
+        Equal(true, blocks[0].IsBold);
+        Equal(18d, blocks[0].FontSize);
+        Equal(OfficeTextAlignment.Center, blocks[0].Alignment);
+        Equal(true, blocks[1].IsTableRow);
+        Equal("项目", blocks[1].Cells![0]);
+        Equal(true, blocks[2].ImageData is { Length: > 0 });
+        Equal(true, blocks[2].ImageWidth > 0);
+        Equal(true, blocks[3].Text.Contains("内置 Word 查看器"));
         return Task.CompletedTask;
     }
     finally { if (!keepFixtures) File.Delete(path); }

@@ -7,8 +7,24 @@ using System.Xml.Linq;
 namespace DocVista.Rendering;
 
 public enum OfficeViewMode { Document, Presentation, CompatibilityText }
+public enum OfficeTextAlignment { Left, Center, Right, Justify }
 
-public sealed record OfficeTextBlock(string Text, bool IsHeading = false, bool IsTableRow = false);
+public sealed record OfficeTextBlock(
+    string Text,
+    bool IsHeading = false,
+    bool IsTableRow = false,
+    IReadOnlyList<string>? Cells = null,
+    bool IsBold = false,
+    bool IsItalic = false,
+    double FontSize = 0,
+    OfficeTextAlignment Alignment = OfficeTextAlignment.Left,
+    double LeftIndent = 0,
+    double FirstLineIndent = 0,
+    double SpaceBefore = 0,
+    double SpaceAfter = 0,
+    byte[]? ImageData = null,
+    double ImageWidth = 0,
+    double ImageHeight = 0);
 public sealed record OfficePage(string? Title, IReadOnlyList<OfficeTextBlock> Blocks);
 public sealed record OfficeDocument(OfficeViewMode Mode, IReadOnlyList<OfficePage> Pages, string Summary);
 
@@ -30,26 +46,60 @@ public static partial class OfficeDocumentLoader
         using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var document = new XWPFDocument(stream);
         var blocks = new List<OfficeTextBlock>();
-        foreach (var paragraph in document.Paragraphs)
+        var paragraphCount = 0;
+        var tableCount = 0;
+        foreach (var element in document.BodyElements)
         {
-            var text = Clean(paragraph.Text);
-            if (text.Length == 0) continue;
-            var style = paragraph.Style ?? string.Empty;
-            blocks.Add(new OfficeTextBlock(text, style.Contains("heading", StringComparison.OrdinalIgnoreCase) || style.Contains("title", StringComparison.OrdinalIgnoreCase)));
-        }
-
-        foreach (var table in document.Tables)
-        {
-            foreach (var row in table.Rows)
+            if (element is XWPFParagraph paragraph)
             {
-                var cells = row.GetTableCells().Select(cell => Clean(string.Join(" ", cell.Paragraphs.Select(paragraph => paragraph.Text)))).Where(text => text.Length > 0);
-                var text = string.Join("    ", cells);
-                if (text.Length > 0) blocks.Add(new OfficeTextBlock(text, IsTableRow: true));
+                var text = Clean(paragraph.Text);
+                var style = paragraph.Style ?? string.Empty;
+                var runs = paragraph.Runs.Where(run => !string.IsNullOrWhiteSpace(run.Text)).ToList();
+                var fontSizes = runs.Select(run => run.FontSize).Where(size => size > 0).ToList();
+                if (text.Length > 0)
+                {
+                    blocks.Add(new OfficeTextBlock(
+                        text,
+                        style.Contains("heading", StringComparison.OrdinalIgnoreCase) || style.Contains("title", StringComparison.OrdinalIgnoreCase),
+                        IsBold: runs.Any(run => run.IsBold),
+                        IsItalic: runs.Any(run => run.IsItalic),
+                        FontSize: fontSizes.Count == 0 ? 0 : fontSizes.Average(),
+                        Alignment: ConvertAlignment(paragraph.Alignment),
+                        LeftIndent: TwipsToPixels(paragraph.IndentationLeft),
+                        FirstLineIndent: TwipsToPixels(paragraph.IndentationFirstLine),
+                        SpaceBefore: TwipsToPixels(paragraph.SpacingBefore),
+                        SpaceAfter: TwipsToPixels(paragraph.SpacingAfter)));
+                    paragraphCount++;
+                }
+
+                foreach (var picture in paragraph.Runs.SelectMany(run => run.GetEmbeddedPictures()))
+                {
+                    var pictureData = picture.GetPictureData()?.Data;
+                    if (pictureData is not { Length: > 0 }) continue;
+                    blocks.Add(new OfficeTextBlock(
+                        string.Empty,
+                        Alignment: ConvertAlignment(paragraph.Alignment),
+                        ImageData: pictureData.ToArray(),
+                        ImageWidth: picture.Width,
+                        ImageHeight: picture.Height));
+                }
+            }
+            else if (element is XWPFTable table)
+            {
+                foreach (var row in table.Rows)
+                {
+                    var cells = row.GetTableCells()
+                        .Select(cell => Clean(string.Join(Environment.NewLine, cell.Paragraphs.Select(cellParagraph => cellParagraph.Text))))
+                        .ToList();
+                    if (cells.Any(text => text.Length > 0))
+                        blocks.Add(new OfficeTextBlock(string.Join("  ", cells), IsTableRow: true, Cells: cells));
+                }
+                tableCount++;
             }
         }
 
-        var pages = Paginate(blocks, 32);
-        return new OfficeDocument(OfficeViewMode.Document, pages, $"{blocks.Count:N0} 段 · {pages.Count:N0} 页预览");
+        var pages = new List<OfficePage> { new(null, blocks) };
+        return new OfficeDocument(OfficeViewMode.Document, pages, $"连续兼容视图 · {paragraphCount:N0} 段 · {tableCount:N0} 个表格");
     }
 
     private static OfficeDocument LoadPptx(string path)
@@ -138,6 +188,14 @@ public static partial class OfficeDocumentLoader
 
     private static bool IsTextCharacter(char character) => char.IsLetterOrDigit(character) || char.IsWhiteSpace(character) || char.IsPunctuation(character) || character is >= '\u4E00' and <= '\u9FFF';
     private static double MeaningfulRatio(string text) => text.Length == 0 ? 0 : text.Count(IsTextCharacter) / (double)text.Length;
+    private static double TwipsToPixels(int value) => value <= 0 ? 0 : Math.Min(160, value / 15d);
+    private static OfficeTextAlignment ConvertAlignment(ParagraphAlignment alignment) => alignment switch
+    {
+        ParagraphAlignment.CENTER => OfficeTextAlignment.Center,
+        ParagraphAlignment.RIGHT => OfficeTextAlignment.Right,
+        ParagraphAlignment.BOTH or ParagraphAlignment.DISTRIBUTE => OfficeTextAlignment.Justify,
+        _ => OfficeTextAlignment.Left
+    };
     private static string Clean(string text) => Whitespace().Replace(text.Replace('\0', ' '), " ").Trim();
     private static int SlideNumber(string path) => int.TryParse(Path.GetFileNameWithoutExtension(path).AsSpan(5), out var number) ? number : int.MaxValue;
 

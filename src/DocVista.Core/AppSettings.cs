@@ -2,6 +2,8 @@ using System.Text.Json;
 
 namespace DocVista.Core;
 
+public enum OfficeDisplayPreference { Auto, Compatibility }
+
 public sealed class AppSettings
 {
     public double WindowWidth { get; set; } = 1240;
@@ -10,7 +12,24 @@ public sealed class AppSettings
     public double WindowTop { get; set; } = double.NaN;
     public bool IsMaximized { get; set; }
     public bool SidebarCollapsed { get; set; }
+    public int DefaultZoomPercent { get; set; } = 100;
+    public int CurrentZoomPercent { get; set; } = 100;
+    public int ZoomStepPercent { get; set; } = 10;
+    public bool RememberZoom { get; set; } = true;
+    public int RecentDocumentLimit { get; set; } = 12;
+    public double SpreadsheetRowHeight { get; set; } = 30;
+    public bool AnimationsEnabled { get; set; } = true;
+    public OfficeDisplayPreference OfficeDisplayPreference { get; set; } = OfficeDisplayPreference.Auto;
     public List<RecentDocument> RecentDocuments { get; set; } = [];
+
+    public void Normalize()
+    {
+        DefaultZoomPercent = Math.Clamp(DefaultZoomPercent, 50, 200);
+        CurrentZoomPercent = Math.Clamp(CurrentZoomPercent, 50, 200);
+        ZoomStepPercent = Math.Clamp(ZoomStepPercent, 5, 50);
+        RecentDocumentLimit = Math.Clamp(RecentDocumentLimit, 3, 30);
+        SpreadsheetRowHeight = Math.Clamp(SpreadsheetRowHeight, 24, 44);
+    }
 }
 
 public sealed record RecentDocument(string Path, DateTimeOffset OpenedAt);
@@ -32,7 +51,9 @@ public sealed class SettingsStore
         try
         {
             if (!File.Exists(_settingsPath)) return new AppSettings();
-            return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_settingsPath), JsonOptions) ?? new AppSettings();
+            settings.Normalize();
+            return settings;
         }
         catch
         {
