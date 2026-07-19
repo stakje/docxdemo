@@ -4,20 +4,24 @@
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI</FontFamily>
-        <SolidColorBrush x:Key="OuterSpaceBrush" Color="#293742"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#80A3C8"/>
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#91B0D0"/>
-        <SolidColorBrush x:Key="BoneBrush" Color="#E0D8CD"/>
-        <SolidColorBrush x:Key="BoneSoftBrush" Color="#F4F0EA"/>
-        <SolidColorBrush x:Key="WengeBrush" Color="#5E5A51"/>
-        <SolidColorBrush x:Key="DarkLavaBrush" Color="#47423A"/>
-        <SolidColorBrush x:Key="TextBrush" Color="#47423A"/>
-        <SolidColorBrush x:Key="MutedTextBrush" Color="#5E5A51"/>
-        <SolidColorBrush x:Key="LineBrush" Color="#C9C0B4"/>
-        <SolidColorBrush x:Key="PanelBrush" Color="#FAF8F4"/>
-        <SolidColorBrush x:Key="CanvasBrush" Color="#D1CBC2"/>
-        <SolidColorBrush x:Key="SidebarTextBrush" Color="#F4F0EA"/>
-        <SolidColorBrush x:Key="SidebarMutedBrush" Color="#BBB9B3"/>
+        <SolidColorBrush x:Key="OuterSpaceBrush" Color="#263642"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#2F6FBA"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#285F9F"/>
+        <SolidColorBrush x:Key="BoneBrush" Color="#F4F6F8"/>
+        <SolidColorBrush x:Key="BoneSoftBrush" Color="#FAFBFC"/>
+        <SolidColorBrush x:Key="WengeBrush" Color="#6F7880"/>
+        <SolidColorBrush x:Key="DarkLavaBrush" Color="#3A4A56"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#25282B"/>
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#68717A"/>
+        <SolidColorBrush x:Key="LineBrush" Color="#D9DEE3"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="CanvasBrush" Color="#E9ECEF"/>
+        <SolidColorBrush x:Key="ChromeBrush" Color="#F7F8FA"/>
+        <SolidColorBrush x:Key="DocumentSurfaceBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="GridHeaderBrush" Color="#F2F4F6"/>
+        <SolidColorBrush x:Key="GridLineBrush" Color="#E1E5E9"/>
+        <SolidColorBrush x:Key="SidebarTextBrush" Color="#F7F9FA"/>
+        <SolidColorBrush x:Key="SidebarMutedBrush" Color="#ACB7BF"/>
         <Style TargetType="ToolTip">
             <Setter Property="Background" Value="{StaticResource OuterSpaceBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource BoneSoftBrush}"/>
@@ -40,8 +44,8 @@
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#DED6CB"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#CEC4B7"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="#EDF1F4"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="#E1E7EB"/></Trigger>
                             <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.35"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -51,7 +55,7 @@
         <Style x:Key="PrimaryButton" TargetType="Button">
             <Setter Property="Height" Value="38"/>
             <Setter Property="Padding" Value="16,0"/>
-            <Setter Property="Foreground" Value="{StaticResource OuterSpaceBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="FontWeight" Value="SemiBold"/>

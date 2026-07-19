@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Text;
 
 var failures = new List<string>();
+var testCount = 0;
 var keepFixtures = Environment.GetEnvironmentVariable("DOCVISTA_WRITE_FIXTURES") == "1";
 var fixtureDirectory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "fixtures");
 if (keepFixtures) Directory.CreateDirectory(fixtureDirectory);
@@ -17,10 +18,13 @@ await Run("DOCX 解析", TestDocxAsync);
 await Run("PPTX 解析", TestPptxAsync);
 await Run("XLS 解析", TestXlsAsync);
 await Run("旧版 Office 兼容模式", TestLegacyOfficeAsync);
+await Run("PDF 文件源", TestPdfDocumentSourceAsync);
+await Run("CSV 渐进列探测", TestCsvLateWideRowAsync);
+await Run("解析取消", TestParsingCancellationAsync);
 
 if (failures.Count == 0)
 {
-    Console.WriteLine("全部 8 项测试通过。");
+    Console.WriteLine($"全部 {testCount} 项测试通过。");
     return 0;
 }
 
@@ -48,6 +52,7 @@ return 1;
 
 async Task Run(string name, Func<Task> test)
 {
+    testCount++;
     try { await test(); Console.WriteLine($"PASS {name}"); }
     catch (Exception exception) { failures.Add($"FAIL {name}: {exception.Message}"); }
 }
@@ -144,7 +149,8 @@ Task TestDocxAsync()
         Equal(true, blocks[1].IsTableRow);
         Equal("项目", blocks[1].Cells![0]);
         Equal(true, blocks[2].ImageData is { Length: > 0 });
-        Equal(true, blocks[2].ImageWidth > 0);
+        Equal(72d, blocks[2].ImageWidth);
+        Equal(72d, blocks[2].ImageHeight);
         Equal(true, blocks[3].Text.Contains("内置 Word 查看器"));
         return Task.CompletedTask;
     }
@@ -205,6 +211,59 @@ async Task TestLegacyOfficeAsync()
     finally { if (!keepFixtures) File.Delete(path); }
 }
 
+Task TestPdfDocumentSourceAsync()
+{
+    var validPath = keepFixtures ? FixturePath("pdf") : Path.Combine(Path.GetTempPath(), $"docvista #{Guid.NewGuid():N}.pdf");
+    var invalidPath = Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.pdf");
+    try
+    {
+        File.WriteAllBytes(validPath, CreateMinimalPdf());
+        File.WriteAllText(invalidPath, "not a pdf");
+        PdfDocumentSource.Validate(validPath);
+        var uri = PdfDocumentSource.CreateUri(validPath);
+        Equal(true, uri.IsFile);
+        Equal(Path.GetFullPath(validPath), Path.GetFullPath(uri.LocalPath));
+        Throws<InvalidDataException>(() => PdfDocumentSource.Validate(invalidPath));
+        return Task.CompletedTask;
+    }
+    finally
+    {
+        if (!keepFixtures) File.Delete(validPath);
+        File.Delete(invalidPath);
+    }
+}
+
+async Task TestCsvLateWideRowAsync()
+{
+    var path = Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.csv");
+    try
+    {
+        var content = new StringBuilder("first,second\r\n");
+        for (var index = 0; index < 300; index++) content.Append($"row {index},value\r\n");
+        content.Append("wide,extra,tail\r\n");
+        await File.WriteAllTextAsync(path, content.ToString(), new UTF8Encoding(false));
+        var document = await CsvDocument.LoadAsync(path);
+        Equal(301, document.Table.Rows.Count);
+        Equal(3, document.Table.Columns.Count);
+        Equal("tail", document.Table.Rows[300][2]);
+    }
+    finally { File.Delete(path); }
+}
+
+async Task TestParsingCancellationAsync()
+{
+    var path = Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.csv");
+    try
+    {
+        await File.WriteAllTextAsync(path, "a,b\r\n1,2");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await ThrowsAsync<OperationCanceledException>(() => CsvDocument.LoadAsync(path, cancellation.Token));
+        Throws<OperationCanceledException>(() => OfficeDocumentLoader.Load(Path.ChangeExtension(path, ".docx"), cancellation.Token));
+    }
+    finally { File.Delete(path); }
+}
+
 string FixturePath(string extension) => keepFixtures
     ? Path.Combine(fixtureDirectory, $"sample.{extension}")
     : Path.Combine(Path.GetTempPath(), $"docvista-{Guid.NewGuid():N}.{extension}");
@@ -216,7 +275,51 @@ static void Add(ZipArchive archive, string path, string content)
     writer.Write(content);
 }
 
+static byte[] CreateMinimalPdf()
+{
+    using var stream = new MemoryStream();
+    static byte[] Bytes(string value) => Encoding.ASCII.GetBytes(value);
+    void Write(string value) => stream.Write(Bytes(value));
+
+    Write("%PDF-1.4\n");
+    var content = "BT /F1 18 Tf 72 720 Td (DocVista PDF) Tj ET\n";
+    var objects = new[]
+    {
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+        $"<< /Length {Bytes(content).Length} >>\nstream\n{content}endstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+    };
+    var offsets = new List<long> { 0 };
+    for (var index = 0; index < objects.Length; index++)
+    {
+        offsets.Add(stream.Position);
+        Write($"{index + 1} 0 obj\n{objects[index]}\nendobj\n");
+    }
+
+    var xrefOffset = stream.Position;
+    Write($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+    foreach (var offset in offsets.Skip(1)) Write($"{offset:0000000000} 00000 n \n");
+    Write($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xrefOffset}\n%%EOF\n");
+    return stream.ToArray();
+}
+
 static void Equal<T>(T expected, T actual)
 {
     if (!EqualityComparer<T>.Default.Equals(expected, actual)) throw new InvalidOperationException($"expected '{expected}', actual '{actual}'");
+}
+
+static void Throws<TException>(Action action) where TException : Exception
+{
+    try { action(); }
+    catch (TException) { return; }
+    throw new InvalidOperationException($"expected exception '{typeof(TException).Name}'");
+}
+
+static async Task ThrowsAsync<TException>(Func<Task> action) where TException : Exception
+{
+    try { await action(); }
+    catch (TException) { return; }
+    throw new InvalidOperationException($"expected exception '{typeof(TException).Name}'");
 }

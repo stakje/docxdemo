@@ -10,7 +10,7 @@ public sealed record WorkbookSheet(string Name, string EntryPath);
 public interface ISpreadsheetWorkbook : IDisposable
 {
     IReadOnlyList<WorkbookSheet> Sheets { get; }
-    TableDocument LoadSheet(WorkbookSheet sheet);
+    TableDocument LoadSheet(WorkbookSheet sheet, CancellationToken cancellationToken = default);
 }
 
 public sealed class XlsxWorkbook : ISpreadsheetWorkbook
@@ -29,12 +29,14 @@ public sealed class XlsxWorkbook : ISpreadsheetWorkbook
 
     public IReadOnlyList<WorkbookSheet> Sheets { get; }
 
-    public static XlsxWorkbook Open(string path)
+    public static XlsxWorkbook Open(string path, CancellationToken cancellationToken = default)
     {
         var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        ZipArchive? archive = null;
         try
         {
-            var archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
+            cancellationToken.ThrowIfCancellationRequested();
+            archive = new ZipArchive(stream, ZipArchiveMode.Read, false);
             var workbook = LoadXml(archive, "xl/workbook.xml");
             var relationships = LoadXml(archive, "xl/_rels/workbook.xml.rels");
             XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -52,19 +54,21 @@ public sealed class XlsxWorkbook : ISpreadsheetWorkbook
                 .Select(sheet => new WorkbookSheet(sheet.Name!, targets[sheet.Id!]))
                 .ToList() ?? [];
 
-            return new XlsxWorkbook(stream, archive, sheets, LoadSharedStrings(archive));
+            return new XlsxWorkbook(stream, archive, sheets, LoadSharedStrings(archive, cancellationToken));
         }
         catch
         {
+            archive?.Dispose();
             stream.Dispose();
             throw;
         }
     }
 
-    public TableDocument LoadSheet(WorkbookSheet sheet)
+    public TableDocument LoadSheet(WorkbookSheet sheet, CancellationToken cancellationToken = default)
     {
         const int maxRows = 50_000;
         const int maxColumns = 256;
+        const int maxCells = 2_000_000;
         var entry = _archive.GetEntry(sheet.EntryPath.Replace('\\', '/')) ?? throw new InvalidDataException($"工作簿缺少 {sheet.EntryPath}");
         using var stream = entry.Open();
         using var reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreComments = true, IgnoreWhitespace = true });
@@ -72,36 +76,54 @@ public sealed class XlsxWorkbook : ISpreadsheetWorkbook
         var table = new DataTable(sheet.Name);
         var rowsRead = 0;
         var truncated = false;
+        table.BeginLoadData();
         reader.MoveToContent();
-        while (!reader.EOF)
+        try
         {
-            if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "row")
+            while (!reader.EOF)
             {
-                reader.Read();
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "dimension" && table.Columns.Count == 0)
+                {
+                    var dimensionWidth = DimensionWidth(reader.GetAttribute("ref"));
+                    if (dimensionWidth is > 0 and <= maxColumns)
+                        while (table.Columns.Count < dimensionWidth) table.Columns.Add(ColumnName(table.Columns.Count), typeof(string));
+                    reader.Read();
+                    continue;
+                }
+                if (reader.NodeType != XmlNodeType.Element || reader.LocalName != "row")
+                {
+                    reader.Read();
+                    continue;
+                }
+                if (rowsRead >= maxRows || table.Columns.Count > 0 && (long)table.Columns.Count * (rowsRead + 1) > maxCells) { truncated = true; break; }
+                var sourceRow = (XElement)XNode.ReadFrom(reader);
+                var values = new List<(int Index, string Value)>();
+                var requiredWidth = table.Columns.Count;
+                foreach (var cell in sourceRow.Elements(main + "c"))
+                {
+                    var index = ColumnIndex((string?)cell.Attribute("r"));
+                    if (index < 0 || index >= maxColumns) continue;
+                    requiredWidth = Math.Max(requiredWidth, index + 1);
+                    var type = (string?)cell.Attribute("t");
+                    var value = type == "inlineStr"
+                        ? string.Concat(cell.Descendants(main + "t").Select(node => node.Value))
+                        : cell.Element(main + "v")?.Value ?? string.Empty;
+                    if (type == "s" && int.TryParse(value, out var sharedIndex) && sharedIndex >= 0 && sharedIndex < _sharedStrings.Count)
+                        value = _sharedStrings[sharedIndex];
+                    if (type == "b") value = value == "1" ? "TRUE" : "FALSE";
+                    values.Add((index, value));
+                }
+                requiredWidth = Math.Max(1, requiredWidth);
+                if ((long)requiredWidth * (rowsRead + 1) > maxCells) { truncated = true; break; }
+                while (table.Columns.Count < requiredWidth) table.Columns.Add(ColumnName(table.Columns.Count), typeof(string));
+                var row = table.NewRow();
+                foreach (var value in values) row[value.Index] = value.Value;
+                table.Rows.Add(row);
+                rowsRead++;
             }
-            if (rowsRead >= maxRows) { truncated = true; break; }
-            var sourceRow = (XElement)XNode.ReadFrom(reader);
-            var cells = sourceRow.Elements(main + "c").ToList();
-            var requiredWidth = Math.Min(maxColumns, cells.Select(cell => ColumnIndex((string?)cell.Attribute("r"))).DefaultIfEmpty(0).Max() + 1);
-            while (table.Columns.Count < Math.Max(1, requiredWidth)) table.Columns.Add(ColumnName(table.Columns.Count), typeof(string));
-            var row = table.NewRow();
-            foreach (var cell in cells)
-            {
-                var index = ColumnIndex((string?)cell.Attribute("r"));
-                if (index < 0 || index >= table.Columns.Count) continue;
-                var type = (string?)cell.Attribute("t");
-                var value = type == "inlineStr"
-                    ? string.Concat(cell.Descendants(main + "t").Select(node => node.Value))
-                    : cell.Element(main + "v")?.Value ?? string.Empty;
-                if (type == "s" && int.TryParse(value, out var sharedIndex) && sharedIndex >= 0 && sharedIndex < _sharedStrings.Count)
-                    value = _sharedStrings[sharedIndex];
-                if (type == "b") value = value == "1" ? "TRUE" : "FALSE";
-                row[index] = value;
-            }
-            table.Rows.Add(row);
-            rowsRead++;
         }
+        finally { table.EndLoadData(); }
 
         if (table.Columns.Count == 0) table.Columns.Add("A", typeof(string));
         return new TableDocument(table, truncated, $"{table.Rows.Count:N0} 行 · {table.Columns.Count:N0} 列");
@@ -120,14 +142,33 @@ public sealed class XlsxWorkbook : ISpreadsheetWorkbook
         return XDocument.Load(stream, LoadOptions.None);
     }
 
-    private static IReadOnlyList<string> LoadSharedStrings(ZipArchive archive)
+    private static IReadOnlyList<string> LoadSharedStrings(ZipArchive archive, CancellationToken cancellationToken)
     {
         var entry = archive.GetEntry("xl/sharedStrings.xml");
         if (entry is null) return [];
         using var stream = entry.Open();
-        var document = XDocument.Load(stream);
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreComments = true, IgnoreWhitespace = true });
         XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-        return document.Root?.Elements(main + "si").Select(item => string.Concat(item.Descendants(main + "t").Select(node => node.Value))).ToList() ?? [];
+        var strings = new List<string>();
+        reader.MoveToContent();
+        while (!reader.EOF)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "si")
+            {
+                var item = (XElement)XNode.ReadFrom(reader);
+                strings.Add(string.Concat(item.Descendants(main + "t").Select(node => node.Value)));
+            }
+            else reader.Read();
+        }
+        return strings;
+    }
+
+    private static int DimensionWidth(string? reference)
+    {
+        if (string.IsNullOrWhiteSpace(reference)) return 0;
+        var lastCell = reference[(reference.LastIndexOf(':') + 1)..];
+        return ColumnIndex(lastCell) + 1;
     }
 
     private static string NormalizeTarget(string target)

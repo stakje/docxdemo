@@ -1,6 +1,7 @@
 using DocVista.Core;
 using DocVista.Rendering;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using Microsoft.Win32;
 using System.Data;
 using System.Diagnostics;
@@ -20,9 +21,26 @@ public partial class MainWindow : Window
 {
     private readonly SettingsStore _settingsStore = new();
     private readonly AppSettings _settings;
+    private readonly SemaphoreSlim _sheetLoadGate = new(1, 1);
     private CancellationTokenSource? _openCancellation;
+    private CancellationTokenSource? _sheetCancellation;
     private ISpreadsheetWorkbook? _workbook;
     private ShellPreviewHost? _shellPreview;
+    private Task<CoreWebView2Environment>? _pdfEnvironmentTask;
+    private Task? _pdfInitializationTask;
+    private WebView2? _pdfViewer;
+    private CoreWebView2? _pdfCore;
+    private string? _activePdfPath;
+    private long _activePdfGeneration;
+    private long _openGeneration;
+    private bool _pdfEngineFailed;
+    private bool _pdfRecoveryInProgress;
+    private OfficeDocument? _officeRenderDocument;
+    private StackPanel? _officeRenderContent;
+    private DispatcherOperation? _officeRenderOperation;
+    private long _officeRenderGeneration;
+    private int _officeRenderPageIndex;
+    private int _officeRenderBlockIndex;
     private DocumentInfo? _currentDocument;
     private bool _restoringSheet;
     private int _zoomPercent = 100;
@@ -31,6 +49,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        CreatePdfViewer();
         _settings = _settingsStore.Load();
         RestoreWindow();
         ApplySettings();
@@ -43,7 +62,13 @@ public partial class MainWindow : Window
     {
         UpdateMaximizeGlyph();
         var argument = Environment.GetCommandLineArgs().Skip(1).FirstOrDefault(File.Exists);
-        if (argument is not null) await OpenDocumentAsync(argument);
+        if (argument is not null)
+        {
+            await OpenDocumentAsync(argument);
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => _ = WarmPdfViewerAsync()));
     }
 
     private async void OpenButton_Click(object sender, RoutedEventArgs e)
@@ -60,14 +85,16 @@ public partial class MainWindow : Window
 
     private async Task OpenDocumentAsync(string path)
     {
+        var openGeneration = ++_openGeneration;
+        _openCancellation?.Cancel();
         if (!File.Exists(path)) { ShowError("文件不存在或已被移动。"); return; }
         var document = DocumentInfo.FromPath(path);
         if (document.Kind == DocumentKind.Unknown) { ShowError($"暂不支持 {document.Extension} 格式。"); return; }
 
-        _openCancellation?.Cancel();
         _openCancellation?.Dispose();
         _openCancellation = new CancellationTokenSource();
         var cancellationToken = _openCancellation.Token;
+        _currentDocument = null;
         if (!_settings.RememberZoom) SetZoom(_settings.DefaultZoomPercent, persist: false);
         DisposeActiveViewers();
         SetDocumentHeader(document);
@@ -79,10 +106,12 @@ public partial class MainWindow : Window
             switch (document.Kind)
             {
                 case DocumentKind.Pdf:
-                    await OpenPdfAsync(document.Path, cancellationToken);
+                    await OpenPdfAsync(document.Path, openGeneration, cancellationToken);
                     break;
                 case DocumentKind.Csv:
                     var csv = await Task.Run(() => CsvDocument.LoadAsync(document.Path, cancellationToken), cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (openGeneration != _openGeneration) throw new OperationCanceledException(cancellationToken);
                     ShowTable(csv);
                     break;
                 case DocumentKind.Excel:
@@ -108,6 +137,7 @@ public partial class MainWindow : Window
             StatusText.Text = $"已打开 · {FormatSize(document.Size)} · {_displayMode}";
         }
         catch (OperationCanceledException) { }
+        catch (Exception) when (cancellationToken.IsCancellationRequested) { }
         catch (Exception exception)
         {
             ShowError(exception.Message);
@@ -115,27 +145,243 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task OpenPdfAsync(string path, CancellationToken cancellationToken)
+    private async Task OpenPdfAsync(string path, long openGeneration, CancellationToken cancellationToken)
     {
+        await Task.Run(() => PdfDocumentSource.Validate(path), cancellationToken);
+        try
+        {
+            await EnsurePdfViewerAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (WebView2RuntimeNotFoundException exception)
+        {
+            throw new InvalidOperationException("系统缺少 Microsoft Edge WebView2 Runtime，无法显示 PDF。请安装或修复 WebView2 Runtime 后重试。", exception);
+        }
+        catch (Exception firstFailure)
+        {
+            Debug.WriteLine($"PDF 引擎初始化失败，正在重建查看器：{firstFailure}");
+            try { await RecreatePdfViewerAsync(cancellationToken); }
+            catch (WebView2RuntimeNotFoundException exception)
+            {
+                throw new InvalidOperationException("系统缺少 Microsoft Edge WebView2 Runtime，无法显示 PDF。请安装或修复 WebView2 Runtime 后重试。", exception);
+            }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"PDF 渲染引擎初始化失败：{exception.Message}", exception);
+            }
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
-        var userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DocVista", "WebView2");
-        var environment = await CoreWebView2Environment.CreateAsync(null, userData);
-        await PdfViewer.EnsureCoreWebView2Async(environment);
+        try { await NavigatePdfAsync(path, cancellationToken); }
+        catch (PdfProcessFailedException firstFailure)
+        {
+            Debug.WriteLine($"PDF 导航期间渲染进程退出，正在重建：{firstFailure}");
+            await RecreatePdfViewerAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (openGeneration != _openGeneration) throw new OperationCanceledException(cancellationToken);
+            await NavigatePdfAsync(path, cancellationToken);
+        }
         cancellationToken.ThrowIfCancellationRequested();
-        PdfViewer.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = true;
-        PdfViewer.CoreWebView2.Settings.IsStatusBarEnabled = false;
-        PdfViewer.ZoomFactor = _zoomPercent / 100d;
-        PdfViewer.Source = new Uri(path);
+        if (openGeneration != _openGeneration) throw new OperationCanceledException(cancellationToken);
+        ShowState(PdfViewerContainer);
+        _activePdfPath = path;
+        _activePdfGeneration = openGeneration;
         _displayMode = "PDF";
         SearchBox.Visibility = Visibility.Collapsed;
-        ShowState(PdfViewer);
+    }
+
+    private void CreatePdfViewer()
+    {
+        _pdfEngineFailed = false;
+        _pdfViewer = new WebView2
+        {
+            DefaultBackgroundColor = System.Drawing.Color.White,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
+        };
+        PdfViewerContainer.Children.Clear();
+        PdfViewerContainer.Children.Add(_pdfViewer);
+    }
+
+    private async Task WarmPdfViewerAsync()
+    {
+        try { await EnsurePdfViewerAsync(CancellationToken.None); }
+        catch (Exception exception) { Debug.WriteLine($"PDF 查看器预热失败：{exception}"); }
+    }
+
+    private async Task EnsurePdfViewerAsync(CancellationToken cancellationToken)
+    {
+        if (_pdfEngineFailed)
+        {
+            DisposePdfViewer();
+            CreatePdfViewer();
+            _pdfInitializationTask = null;
+        }
+        _pdfInitializationTask ??= InitializePdfViewerCoreAsync();
+        var initialization = _pdfInitializationTask;
+        try
+        {
+            await initialization.WaitAsync(cancellationToken);
+        }
+        catch
+        {
+            if (initialization.IsFaulted && ReferenceEquals(_pdfInitializationTask, initialization))
+                _pdfInitializationTask = null;
+            throw;
+        }
+    }
+
+    private async Task InitializePdfViewerCoreAsync()
+    {
+        if (_pdfViewer is null) CreatePdfViewer();
+        var userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DocVista", "WebView2");
+        _pdfEnvironmentTask ??= CoreWebView2Environment.CreateAsync(null, userData);
+        CoreWebView2Environment environment;
+        try { environment = await _pdfEnvironmentTask; }
+        catch
+        {
+            _pdfEnvironmentTask = null;
+            throw;
+        }
+
+        await _pdfViewer!.EnsureCoreWebView2Async(environment);
+        _pdfCore = _pdfViewer.CoreWebView2;
+        var settings = _pdfCore.Settings;
+        settings.AreBrowserAcceleratorKeysEnabled = true;
+        settings.IsStatusBarEnabled = false;
+        _pdfCore.ProcessFailed -= PdfViewer_ProcessFailed;
+        _pdfCore.ProcessFailed += PdfViewer_ProcessFailed;
+        _pdfViewer.ZoomFactor = _zoomPercent / 100d;
+    }
+
+    private async Task NavigatePdfAsync(string path, CancellationToken cancellationToken)
+    {
+        var viewer = _pdfViewer ?? throw new InvalidOperationException("PDF 查看器尚未初始化");
+        var core = viewer.CoreWebView2 ?? throw new InvalidOperationException("PDF 渲染引擎尚未就绪");
+        var completion = new TaskCompletionSource<(bool IsSuccess, CoreWebView2WebErrorStatus Status)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ulong? navigationId = null;
+        EventHandler<CoreWebView2NavigationStartingEventArgs>? starting = null;
+        EventHandler<CoreWebView2NavigationCompletedEventArgs>? completed = null;
+        EventHandler<CoreWebView2ProcessFailedEventArgs>? processFailed = null;
+        starting = (_, args) => navigationId ??= args.NavigationId;
+        completed = (_, args) =>
+        {
+            if (navigationId is not null && args.NavigationId == navigationId.Value)
+                completion.TrySetResult((args.IsSuccess, args.WebErrorStatus));
+        };
+        processFailed = (_, args) =>
+        {
+            if (IsFatalPdfProcessFailure(args.ProcessFailedKind))
+                completion.TrySetException(new PdfProcessFailedException(args.ProcessFailedKind));
+        };
+        core.NavigationStarting += starting;
+        core.NavigationCompleted += completed;
+        core.ProcessFailed += processFailed;
+
+        try
+        {
+            core.Navigate(PdfDocumentSource.CreateUri(path).AbsoluteUri);
+            var result = await completion.Task.WaitAsync(TimeSpan.FromSeconds(25), cancellationToken);
+            if (!result.IsSuccess)
+                throw new InvalidOperationException($"PDF 导航失败：{result.Status}");
+        }
+        catch (OperationCanceledException)
+        {
+            try { core.Stop(); } catch { }
+            throw;
+        }
+        catch (TimeoutException exception)
+        {
+            try { core.Stop(); } catch { }
+            throw new TimeoutException("PDF 加载超时，请确认文件未损坏且当前用户有读取权限。", exception);
+        }
+        finally
+        {
+            try
+            {
+                core.NavigationStarting -= starting;
+                core.NavigationCompleted -= completed;
+                core.ProcessFailed -= processFailed;
+            }
+            catch { }
+        }
+    }
+
+    private async Task RecreatePdfViewerAsync(CancellationToken cancellationToken)
+    {
+        DisposePdfViewer();
+        CreatePdfViewer();
+        _pdfInitializationTask = null;
+        await EnsurePdfViewerAsync(cancellationToken);
+    }
+
+    private async void PdfViewer_ProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+    {
+        Debug.WriteLine($"WebView2 PDF 进程异常：{e.ProcessFailedKind}");
+        if (!ReferenceEquals(sender, _pdfCore) || !IsFatalPdfProcessFailure(e.ProcessFailedKind)) return;
+        _pdfEngineFailed = true;
+        _pdfInitializationTask = null;
+        if (_pdfRecoveryInProgress || PdfViewerContainer.Visibility != Visibility.Visible || _activePdfPath is null || _activePdfGeneration == 0) return;
+        _pdfRecoveryInProgress = true;
+        var path = _activePdfPath;
+        var generation = _activePdfGeneration;
+        var recoveryToken = _openCancellation?.Token ?? CancellationToken.None;
+        try
+        {
+            StatusText.Text = "PDF 渲染进程正在恢复…";
+            await RecreatePdfViewerAsync(recoveryToken);
+            if (!IsCurrentPdf(path, generation, recoveryToken)) return;
+            await NavigatePdfAsync(path, recoveryToken);
+            if (!IsCurrentPdf(path, generation, recoveryToken)) return;
+            ShowState(PdfViewerContainer);
+            _activePdfPath = path;
+            StatusText.Text = $"已恢复 · PDF · {FormatSize(new FileInfo(path).Length)}";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception)
+        {
+            if (!IsCurrentPdf(path, generation, recoveryToken)) return;
+            ShowError($"PDF 渲染进程异常，自动恢复失败：{exception.Message}");
+            StatusText.Text = "PDF 打开失败";
+        }
+        finally { _pdfRecoveryInProgress = false; }
+    }
+
+    private bool IsCurrentPdf(string path, long generation, CancellationToken cancellationToken) =>
+        !cancellationToken.IsCancellationRequested && generation == _openGeneration && generation == _activePdfGeneration &&
+        string.Equals(path, _activePdfPath, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsFatalPdfProcessFailure(CoreWebView2ProcessFailedKind kind) => kind is
+        CoreWebView2ProcessFailedKind.BrowserProcessExited or
+        CoreWebView2ProcessFailedKind.RenderProcessExited;
+
+    private void DisposePdfViewer()
+    {
+        if (_pdfViewer is null) return;
+        try { if (_pdfCore is not null) _pdfCore.ProcessFailed -= PdfViewer_ProcessFailed; }
+        catch { }
+        try { _pdfViewer.Dispose(); } catch { }
+        PdfViewerContainer.Children.Clear();
+        _pdfViewer = null;
+        _pdfCore = null;
     }
 
     private async Task OpenSpreadsheetAsync(string path, CancellationToken cancellationToken)
     {
-        _workbook = await Task.Run<ISpreadsheetWorkbook>(() => Path.GetExtension(path).Equals(".xls", StringComparison.OrdinalIgnoreCase)
-            ? LegacyXlsWorkbook.Open(path)
-            : XlsxWorkbook.Open(path), cancellationToken);
+        ShowState(LoadingState);
+        LoadingText.Text = $"正在读取 {Path.GetFileName(path)}…";
+        ISpreadsheetWorkbook? openedWorkbook = null;
+        try
+        {
+            openedWorkbook = await Task.Run<ISpreadsheetWorkbook>(() => Path.GetExtension(path).Equals(".xls", StringComparison.OrdinalIgnoreCase)
+                ? LegacyXlsWorkbook.Open(path, cancellationToken)
+                : XlsxWorkbook.Open(path, cancellationToken), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            _workbook = openedWorkbook;
+            openedWorkbook = null;
+        }
+        finally { openedWorkbook?.Dispose(); }
+
         if (_workbook.Sheets.Count == 0) throw new InvalidDataException("工作簿中没有可见工作表。");
         _restoringSheet = true;
         SheetSelector.ItemsSource = _workbook.Sheets;
@@ -149,90 +395,93 @@ public partial class MainWindow : Window
 
     private async Task LoadSheetAsync(WorkbookSheet sheet, CancellationToken cancellationToken)
     {
-        if (_workbook is null) return;
+        var workbook = _workbook;
+        if (workbook is null) return;
+        _sheetCancellation?.Cancel();
+        _sheetCancellation?.Dispose();
+        var sheetCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _sheetCancellation = sheetCancellation;
+        var sheetToken = sheetCancellation.Token;
         ShowState(LoadingState);
         LoadingText.Text = $"正在读取 {sheet.Name}…";
-        var data = await Task.Run(() => _workbook.LoadSheet(sheet), cancellationToken);
-        ShowTable(data);
+        try
+        {
+            await _sheetLoadGate.WaitAsync(sheetToken);
+            TableDocument data;
+            try { data = await Task.Run(() => workbook.LoadSheet(sheet, sheetToken), CancellationToken.None); }
+            finally { _sheetLoadGate.Release(); }
+            sheetToken.ThrowIfCancellationRequested();
+            if (ReferenceEquals(_workbook, workbook)) ShowTable(data);
+        }
+        finally
+        {
+            if (ReferenceEquals(_sheetCancellation, sheetCancellation)) _sheetCancellation = null;
+            sheetCancellation.Dispose();
+        }
     }
 
     private async Task OpenShellPreviewAsync(string path, CancellationToken cancellationToken)
     {
-        _shellPreview = new ShellPreviewHost();
+        var preview = new ShellPreviewHost();
+        _shellPreview = preview;
         ShellViewerContainer.Children.Clear();
-        ShellViewerContainer.Children.Add(_shellPreview);
-        ShowState(ShellViewerContainer);
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded, cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        _shellPreview.LoadPreview(path);
-        ApplyZoomToShellFromDefault();
-        _displayMode = "系统高保真预览";
-        SearchBox.Visibility = Visibility.Collapsed;
+        ShellViewerContainer.Children.Add(preview);
+        try
+        {
+            ShowState(ShellViewerContainer);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(_shellPreview, preview)) throw new OperationCanceledException();
+            preview.LoadPreview(path);
+            ApplyZoomToShellFromDefault(preview);
+            _displayMode = "系统高保真预览";
+            SearchBox.Visibility = Visibility.Collapsed;
+        }
+        catch
+        {
+            ReleaseShellPreview(preview);
+            throw;
+        }
     }
 
     private async Task<bool> TryOpenShellPreviewAsync(string path, CancellationToken cancellationToken)
     {
         try { await OpenShellPreviewAsync(path, cancellationToken); return true; }
-        catch
-        {
-            _shellPreview?.UnloadPreview();
-            _shellPreview = null;
-            ShellViewerContainer.Children.Clear();
-            return false;
-        }
+        catch (OperationCanceledException) { throw; }
+        catch { return false; }
+    }
+
+    private void ReleaseShellPreview(ShellPreviewHost preview)
+    {
+        try { preview.UnloadPreview(); } catch { }
+        if (!ReferenceEquals(_shellPreview, preview)) return;
+        _shellPreview = null;
+        ShellViewerContainer.Children.Remove(preview);
     }
 
     private async Task OpenOfficeDocumentAsync(string path, CancellationToken cancellationToken)
     {
-        var document = await Task.Run(() => OfficeDocumentLoader.Load(path), cancellationToken);
-        OfficePagesPanel.Children.Clear();
-        for (var index = 0; index < document.Pages.Count; index++)
-            OfficePagesPanel.Children.Add(CreateOfficePage(document.Pages[index], document.Mode, index + 1, document.Pages.Count));
+        ShowState(LoadingState);
+        LoadingText.Text = $"正在读取 {Path.GetFileName(path)}…";
+        var document = await Task.Run(() => OfficeDocumentLoader.Load(path, cancellationToken), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        ResetOfficeRenderer();
+        _officeRenderDocument = document;
+        _officeRenderGeneration = _openGeneration;
         TableSummary.Text = document.Summary;
         _displayMode = document.Mode == OfficeViewMode.CompatibilityText ? "兼容文本视图" : "兼容视图";
         SearchBox.Visibility = Visibility.Collapsed;
         ShowState(OfficeViewer);
+        OfficeViewer.ScrollToTop();
+        RenderOfficeBatch();
+        ScheduleOfficeRenderIfNeeded();
     }
 
-    private FrameworkElement CreateOfficePage(OfficePage page, OfficeViewMode mode, int pageNumber, int totalPages)
+    private StackPanel CreateOfficePage(OfficePage page, OfficeViewMode mode, int pageNumber, int totalPages)
     {
         var content = new StackPanel();
         if (!string.IsNullOrWhiteSpace(page.Title))
             content.Children.Add(new TextBlock { Text = page.Title, FontSize = mode == OfficeViewMode.Presentation ? 26 : 20, FontWeight = FontWeights.SemiBold, Foreground = (Brush)FindResource("OuterSpaceBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
-
-        foreach (var block in page.Blocks)
-        {
-            if (block.ImageData is { Length: > 0 })
-            {
-                content.Children.Add(CreateDocumentImage(block));
-                continue;
-            }
-
-            var fontSize = block.IsHeading ? 20 : block.FontSize > 0 ? Math.Clamp(block.FontSize * 96d / 72d, 11, 28) : mode == OfficeViewMode.Presentation ? 16 : 13;
-            var text = new TextBlock
-            {
-                Text = block.Text,
-                FontSize = fontSize,
-                FontWeight = block.IsHeading || block.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
-                FontStyle = block.IsItalic ? FontStyles.Italic : FontStyles.Normal,
-                Foreground = (Brush)FindResource(block.IsHeading ? "OuterSpaceBrush" : "TextBrush"),
-                TextWrapping = TextWrapping.Wrap,
-                TextAlignment = block.Alignment switch
-                {
-                    OfficeTextAlignment.Center => TextAlignment.Center,
-                    OfficeTextAlignment.Right => TextAlignment.Right,
-                    OfficeTextAlignment.Justify => TextAlignment.Justify,
-                    _ => TextAlignment.Left
-                },
-                LineHeight = mode == OfficeViewMode.Presentation ? 27 : 22,
-                Margin = new Thickness(block.LeftIndent + block.FirstLineIndent, Math.Max(block.SpaceBefore, block.IsHeading ? 14 : 3), 0, Math.Max(block.SpaceAfter, block.IsHeading ? 8 : 5))
-            };
-            if (block.IsTableRow && block.Cells is { Count: > 0 })
-                content.Children.Add(CreateTableRow(block.Cells));
-            else if (block.IsTableRow)
-                content.Children.Add(new Border { Background = (Brush)FindResource("BoneSoftBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(9, 6, 9, 6), Child = text });
-            else content.Children.Add(text);
-        }
 
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -244,12 +493,12 @@ public partial class MainWindow : Window
         Grid.SetRow(number, 2);
         grid.Children.Add(number);
 
-        return new Border
+        var pageSurface = new Border
         {
             MaxWidth = mode == OfficeViewMode.Presentation ? 920 : 780,
             MinHeight = mode == OfficeViewMode.Presentation ? 480 : totalPages > 1 ? 820 : 420,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            Background = (Brush)FindResource("PanelBrush"),
+            Background = (Brush)FindResource("DocumentSurfaceBrush"),
             BorderBrush = (Brush)FindResource("LineBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(2),
@@ -257,6 +506,113 @@ public partial class MainWindow : Window
             Margin = new Thickness(24, 10, 24, 10),
             Child = grid
         };
+        OfficePagesPanel.Children.Add(pageSurface);
+        return content;
+    }
+
+    private FrameworkElement CreateOfficeBlock(OfficeTextBlock block, OfficeViewMode mode)
+    {
+        if (block.ImageData is { Length: > 0 }) return CreateDocumentImage(block);
+
+        var fontSize = block.IsHeading ? 20 : block.FontSize > 0 ? Math.Clamp(block.FontSize * 96d / 72d, 11, 28) : mode == OfficeViewMode.Presentation ? 16 : 13;
+        var text = new TextBlock
+        {
+            Text = block.Text,
+            FontSize = fontSize,
+            FontWeight = block.IsHeading || block.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
+            FontStyle = block.IsItalic ? FontStyles.Italic : FontStyles.Normal,
+            Foreground = (Brush)FindResource(block.IsHeading ? "OuterSpaceBrush" : "TextBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = block.Alignment switch
+            {
+                OfficeTextAlignment.Center => TextAlignment.Center,
+                OfficeTextAlignment.Right => TextAlignment.Right,
+                OfficeTextAlignment.Justify => TextAlignment.Justify,
+                _ => TextAlignment.Left
+            },
+            LineHeight = mode == OfficeViewMode.Presentation ? 27 : 22,
+            Margin = new Thickness(block.LeftIndent + block.FirstLineIndent, Math.Max(block.SpaceBefore, block.IsHeading ? 14 : 3), 0, Math.Max(block.SpaceAfter, block.IsHeading ? 8 : 5))
+        };
+        if (block.IsTableRow && block.Cells is { Count: > 0 }) return CreateTableRow(block.Cells);
+        if (block.IsTableRow)
+            return new Border { Background = (Brush)FindResource("DocumentSurfaceBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(9, 6, 9, 6), Child = text };
+        return text;
+    }
+
+    private void RenderOfficeBatch()
+    {
+        const int batchBudget = 56;
+        var document = _officeRenderDocument;
+        if (document is null) return;
+        var remaining = batchBudget;
+
+        while (remaining > 0 && _officeRenderPageIndex < document.Pages.Count)
+        {
+            var page = document.Pages[_officeRenderPageIndex];
+            if (_officeRenderContent is null)
+            {
+                _officeRenderContent = CreateOfficePage(page, document.Mode, _officeRenderPageIndex + 1, document.Pages.Count);
+                remaining -= 6;
+            }
+
+            if (_officeRenderBlockIndex >= page.Blocks.Count)
+            {
+                _officeRenderPageIndex++;
+                _officeRenderBlockIndex = 0;
+                _officeRenderContent = null;
+                continue;
+            }
+
+            var block = page.Blocks[_officeRenderBlockIndex++];
+            _officeRenderContent.Children.Add(CreateOfficeBlock(block, document.Mode));
+            remaining -= block.ImageData is { Length: > 0 } ? 8 : 1;
+        }
+
+        if (_officeRenderPageIndex >= document.Pages.Count)
+        {
+            _officeRenderDocument = null;
+            _officeRenderContent = null;
+        }
+    }
+
+    private void OfficeViewer_ScrollChanged(object sender, ScrollChangedEventArgs e) => ScheduleOfficeRenderIfNeeded();
+
+    private void ScheduleOfficeRenderIfNeeded()
+    {
+        if (_officeRenderDocument is null || OfficeViewer.Visibility != Visibility.Visible) return;
+        var renderAhead = Math.Max(720, OfficeViewer.ViewportHeight * 1.5);
+        if (OfficeViewer.ExtentHeight > 0 && OfficeViewer.VerticalOffset + OfficeViewer.ViewportHeight + renderAhead < OfficeViewer.ExtentHeight) return;
+        if (_officeRenderOperation is { Status: DispatcherOperationStatus.Pending or DispatcherOperationStatus.Executing }) return;
+
+        _officeRenderOperation = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+        {
+            _officeRenderOperation = null;
+            var generation = _officeRenderGeneration;
+            if (generation == 0 || generation != _openGeneration) return;
+            try
+            {
+                RenderOfficeBatch();
+                ScheduleOfficeRenderIfNeeded();
+            }
+            catch (Exception exception)
+            {
+                if (generation != _openGeneration) return;
+                ShowError($"文档后续内容渲染失败：{exception.Message}");
+                StatusText.Text = "打开失败";
+            }
+        }));
+    }
+
+    private void ResetOfficeRenderer()
+    {
+        if (_officeRenderOperation?.Status == DispatcherOperationStatus.Pending) _officeRenderOperation.Abort();
+        _officeRenderOperation = null;
+        _officeRenderDocument = null;
+        _officeRenderContent = null;
+        _officeRenderGeneration = 0;
+        _officeRenderPageIndex = 0;
+        _officeRenderBlockIndex = 0;
+        OfficePagesPanel.Children.Clear();
     }
 
     private FrameworkElement CreateDocumentImage(OfficeTextBlock block)
@@ -265,6 +621,8 @@ public partial class MainWindow : Window
         var bitmap = new BitmapImage();
         bitmap.BeginInit();
         bitmap.CacheOption = BitmapCacheOption.OnLoad;
+        if (block.ImageWidth > 0)
+            bitmap.DecodePixelWidth = (int)Math.Clamp(Math.Ceiling(block.ImageWidth * 96d / 72d * 1.5), 64, 1320);
         bitmap.StreamSource = stream;
         bitmap.EndInit();
         bitmap.Freeze();
@@ -290,7 +648,7 @@ public partial class MainWindow : Window
 
     private FrameworkElement CreateTableRow(IReadOnlyList<string> cells)
     {
-        var grid = new Grid { Background = (Brush)FindResource("BoneSoftBrush") };
+        var grid = new Grid { Background = (Brush)FindResource("DocumentSurfaceBrush") };
         for (var index = 0; index < cells.Count; index++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 72 });
@@ -310,7 +668,7 @@ public partial class MainWindow : Window
     private void ShowTable(TableDocument document)
     {
         TableViewer.ItemsSource = document.Table.DefaultView;
-        TableViewer.RowHeight = _settings.SpreadsheetRowHeight;
+        ApplyTableZoom();
         TableSummary.Text = document.Summary + (document.WasTruncated ? " · 已限制预览行数" : string.Empty);
         _displayMode = "数据视图";
         SearchBox.Visibility = Visibility.Visible;
@@ -320,10 +678,10 @@ public partial class MainWindow : Window
 
     private void ShowState(UIElement visible)
     {
-        foreach (var state in new UIElement[] { EmptyState, LoadingState, ErrorState, PdfViewer, TableViewer, OfficeViewer, ShellViewerContainer })
+        foreach (var state in new UIElement[] { EmptyState, LoadingState, ErrorState, PdfViewerContainer, TableViewer, OfficeViewer, ShellViewerContainer })
             state.Visibility = state == visible ? Visibility.Visible : Visibility.Collapsed;
 
-        if (!_settings.AnimationsEnabled)
+        if (!_settings.AnimationsEnabled || visible == PdfViewerContainer || visible == ShellViewerContainer)
         {
             visible.BeginAnimation(OpacityProperty, null);
             visible.Opacity = 1;
@@ -340,6 +698,7 @@ public partial class MainWindow : Window
 
     private void ShowError(string message)
     {
+        _currentDocument = null;
         DisposeActiveViewers();
         ErrorText.Text = message;
         SearchBox.Visibility = Visibility.Collapsed;
@@ -350,20 +709,49 @@ public partial class MainWindow : Window
 
     private void DisposeActiveViewers()
     {
-        try { PdfViewer.CoreWebView2?.Stop(); } catch { }
+        _activePdfPath = null;
+        _activePdfGeneration = 0;
+        try { _pdfViewer?.CoreWebView2?.Stop(); } catch { }
+        _sheetCancellation?.Cancel();
+        _sheetCancellation?.Dispose();
+        _sheetCancellation = null;
         TableViewer.ItemsSource = null;
-        OfficePagesPanel.Children.Clear();
-        _shellPreview?.UnloadPreview();
+        ResetOfficeRenderer();
+        var shellPreview = _shellPreview;
         _shellPreview = null;
+        if (shellPreview is not null)
+        {
+            try { shellPreview.UnloadPreview(); } catch { }
+        }
         ShellViewerContainer.Children.Clear();
-        _workbook?.Dispose();
+        var workbook = _workbook;
         _workbook = null;
+        if (workbook is not null) QueueWorkbookDisposal(workbook);
         _restoringSheet = true;
         SheetSelector.ItemsSource = null;
         SheetSelector.Visibility = Visibility.Collapsed;
         _restoringSheet = false;
         SearchBox.Visibility = Visibility.Collapsed;
         TableSummary.Text = string.Empty;
+    }
+
+    private void QueueWorkbookDisposal(ISpreadsheetWorkbook workbook)
+    {
+        if (_sheetLoadGate.Wait(0))
+        {
+            try { workbook.Dispose(); }
+            finally { _sheetLoadGate.Release(); }
+            return;
+        }
+        _ = DisposeWorkbookAfterReadsAsync(workbook);
+    }
+
+    private async Task DisposeWorkbookAfterReadsAsync(ISpreadsheetWorkbook workbook)
+    {
+        await _sheetLoadGate.WaitAsync();
+        try { workbook.Dispose(); }
+        catch (Exception exception) { Debug.WriteLine(exception); }
+        finally { _sheetLoadGate.Release(); }
     }
 
     private void SetDocumentHeader(DocumentInfo document)
@@ -384,7 +772,6 @@ public partial class MainWindow : Window
 
     private void RefreshRecentDocuments()
     {
-        _settings.RecentDocuments.RemoveAll(item => !File.Exists(item.Path));
         RecentList.ItemsSource = _settings.RecentDocuments.Select(item => new RecentItem(item.Path)).ToList();
     }
 
@@ -424,6 +811,7 @@ public partial class MainWindow : Window
             _openCancellation ??= new CancellationTokenSource();
             await LoadSheetAsync(sheet, _openCancellation.Token);
         }
+        catch (OperationCanceledException) { }
         catch (Exception exception) when (exception is not OperationCanceledException) { ShowError(exception.Message); }
     }
 
@@ -481,9 +869,9 @@ public partial class MainWindow : Window
         var previous = _zoomPercent;
         _zoomPercent = percent;
         var scale = percent / 100d;
-        TableScaleTransform.ScaleX = TableScaleTransform.ScaleY = scale;
+        ApplyTableZoom();
         OfficeScaleTransform.ScaleX = OfficeScaleTransform.ScaleY = scale;
-        try { PdfViewer.ZoomFactor = scale; } catch { }
+        try { if (_pdfViewer is not null) _pdfViewer.ZoomFactor = scale; } catch { }
         if (ShellViewerContainer.Visibility == Visibility.Visible && _shellPreview is not null && previous != percent)
         {
             var step = Math.Max(1, _settings.ZoomStepPercent);
@@ -498,11 +886,20 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ApplyZoomToShellFromDefault()
+    private void ApplyTableZoom()
     {
-        if (_shellPreview is null || _zoomPercent == 100) return;
+        var scale = _zoomPercent / 100d;
+        TableViewer.FontSize = 12 * scale;
+        TableViewer.RowHeight = _settings.SpreadsheetRowHeight * scale;
+        TableViewer.ColumnHeaderHeight = 34 * scale;
+        TableViewer.RowHeaderWidth = 46 * scale;
+    }
+
+    private void ApplyZoomToShellFromDefault(ShellPreviewHost preview)
+    {
+        if (_zoomPercent == 100) return;
         var steps = Math.Max(1, (int)Math.Round(Math.Abs(_zoomPercent - 100) / (double)Math.Max(1, _settings.ZoomStepPercent)));
-        _shellPreview.TryAdjustZoom(Math.Sign(_zoomPercent - 100), steps);
+        preview.TryAdjustZoom(Math.Sign(_zoomPercent - 100), steps);
     }
 
     private async void SettingsButton_Click(object sender, RoutedEventArgs e)
@@ -527,7 +924,6 @@ public partial class MainWindow : Window
     private void ApplySettings()
     {
         _settings.Normalize();
-        TableViewer.RowHeight = _settings.SpreadsheetRowHeight;
         var targetZoom = _settings.RememberZoom ? _settings.CurrentZoomPercent : _settings.DefaultZoomPercent;
         SetZoom(targetZoom, persist: false);
         if (_settings.RecentDocuments.Count > _settings.RecentDocumentLimit)
@@ -650,6 +1046,7 @@ public partial class MainWindow : Window
     {
         _openCancellation?.Cancel();
         DisposeActiveViewers();
+        DisposePdfViewer();
         var bounds = RestoreBounds;
         _settings.WindowWidth = bounds.Width;
         _settings.WindowHeight = bounds.Height;
@@ -678,4 +1075,7 @@ public partial class MainWindow : Window
         public string Extension => System.IO.Path.GetExtension(Path).TrimStart('.').ToUpperInvariant();
         public string Directory => System.IO.Path.GetDirectoryName(Path) ?? string.Empty;
     }
+
+    private sealed class PdfProcessFailedException(CoreWebView2ProcessFailedKind kind)
+        : InvalidOperationException($"PDF 渲染进程异常：{kind}");
 }

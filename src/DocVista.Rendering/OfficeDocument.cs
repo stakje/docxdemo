@@ -30,19 +30,20 @@ public sealed record OfficeDocument(OfficeViewMode Mode, IReadOnlyList<OfficePag
 
 public static partial class OfficeDocumentLoader
 {
-    public static OfficeDocument Load(string path)
+    public static OfficeDocument Load(string path, CancellationToken cancellationToken = default)
     {
         return Path.GetExtension(path).ToLowerInvariant() switch
         {
-            ".docx" => LoadDocx(path),
-            ".pptx" => LoadPptx(path),
-            ".doc" or ".ppt" => LoadLegacyText(path),
+            ".docx" => LoadDocx(path, cancellationToken),
+            ".pptx" => LoadPptx(path, cancellationToken),
+            ".doc" or ".ppt" => LoadLegacyText(path, cancellationToken),
             _ => throw new NotSupportedException("不支持此 Office 格式")
         };
     }
 
-    private static OfficeDocument LoadDocx(string path)
+    private static OfficeDocument LoadDocx(string path, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var document = new XWPFDocument(stream);
         var blocks = new List<OfficeTextBlock>();
@@ -50,6 +51,7 @@ public static partial class OfficeDocumentLoader
         var tableCount = 0;
         foreach (var element in document.BodyElements)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (element is XWPFParagraph paragraph)
             {
                 var text = Clean(paragraph.Text);
@@ -80,8 +82,8 @@ public static partial class OfficeDocumentLoader
                         string.Empty,
                         Alignment: ConvertAlignment(paragraph.Alignment),
                         ImageData: pictureData.ToArray(),
-                        ImageWidth: picture.Width,
-                        ImageHeight: picture.Height));
+                        ImageWidth: EmusToPoints(picture.Width),
+                        ImageHeight: EmusToPoints(picture.Height)));
                 }
             }
             else if (element is XWPFTable table)
@@ -102,8 +104,9 @@ public static partial class OfficeDocumentLoader
         return new OfficeDocument(OfficeViewMode.Document, pages, $"连续兼容视图 · {paragraphCount:N0} 段 · {tableCount:N0} 个表格");
     }
 
-    private static OfficeDocument LoadPptx(string path)
+    private static OfficeDocument LoadPptx(string path, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
         XNamespace drawing = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -114,6 +117,7 @@ public static partial class OfficeDocumentLoader
         var pages = new List<OfficePage>();
         foreach (var entry in entries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var slideStream = entry.Open();
             var xml = XDocument.Load(slideStream, LoadOptions.None);
             var texts = xml.Descendants(drawing + "t").Select(node => Clean(node.Value)).Where(text => text.Length > 0).ToList();
@@ -125,13 +129,13 @@ public static partial class OfficeDocumentLoader
         return new OfficeDocument(OfficeViewMode.Presentation, pages, $"{pages.Count:N0} 张幻灯片");
     }
 
-    private static OfficeDocument LoadLegacyText(string path)
+    private static OfficeDocument LoadLegacyText(string path, CancellationToken cancellationToken)
     {
         if (new FileInfo(path).Length > 128L * 1024 * 1024) throw new InvalidDataException("旧版 Office 文件超过 128 MB，无法使用兼容文本模式打开");
-        var bytes = File.ReadAllBytes(path);
+        var bytes = ReadAllBytes(path, cancellationToken);
         var texts = new List<string>();
-        ExtractUnicodeRuns(bytes, texts);
-        ExtractAnsiRuns(bytes, texts);
+        ExtractUnicodeRuns(bytes, texts, cancellationToken);
+        ExtractAnsiRuns(bytes, texts, cancellationToken);
         var unique = texts.Select(Clean)
             .Where(text => text.Length >= 4 && MeaningfulRatio(text) >= 0.72)
             .Distinct(StringComparer.Ordinal)
@@ -149,13 +153,29 @@ public static partial class OfficeDocumentLoader
         return blocks.Chunk(pageSize).Select(chunk => new OfficePage(null, chunk)).ToList();
     }
 
-    private static void ExtractUnicodeRuns(byte[] bytes, List<string> output)
+    private static byte[] ReadAllBytes(string path, CancellationToken cancellationToken)
+    {
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var bytes = new byte[stream.Length];
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var read = stream.Read(bytes, offset, Math.Min(1024 * 1024, bytes.Length - offset));
+            if (read == 0) throw new EndOfStreamException("Office 文件读取不完整");
+            offset += read;
+        }
+        return bytes;
+    }
+
+    private static void ExtractUnicodeRuns(byte[] bytes, List<string> output, CancellationToken cancellationToken)
     {
         for (var parity = 0; parity < 2; parity++)
         {
             var run = new StringBuilder();
             for (var index = parity; index + 1 < bytes.Length; index += 2)
             {
+                if ((index & 0xFFFF) == 0) cancellationToken.ThrowIfCancellationRequested();
                 var character = (char)(bytes[index] | bytes[index + 1] << 8);
                 if (IsTextCharacter(character)) run.Append(character);
                 else { Flush(run, output, 4); run.Clear(); }
@@ -164,13 +184,15 @@ public static partial class OfficeDocumentLoader
         }
     }
 
-    private static void ExtractAnsiRuns(byte[] bytes, List<string> output)
+    private static void ExtractAnsiRuns(byte[] bytes, List<string> output, CancellationToken cancellationToken)
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         var encoding = Encoding.GetEncoding(936);
         var run = new List<byte>();
-        foreach (var value in bytes)
+        for (var index = 0; index < bytes.Length; index++)
         {
+            if ((index & 0xFFFF) == 0) cancellationToken.ThrowIfCancellationRequested();
+            var value = bytes[index];
             if (value is >= 32 and <= 126 or >= 0x81) run.Add(value);
             else
             {
@@ -189,6 +211,7 @@ public static partial class OfficeDocumentLoader
     private static bool IsTextCharacter(char character) => char.IsLetterOrDigit(character) || char.IsWhiteSpace(character) || char.IsPunctuation(character) || character is >= '\u4E00' and <= '\u9FFF';
     private static double MeaningfulRatio(string text) => text.Length == 0 ? 0 : text.Count(IsTextCharacter) / (double)text.Length;
     private static double TwipsToPixels(int value) => value <= 0 ? 0 : Math.Min(160, value / 15d);
+    private static double EmusToPoints(long value) => value <= 0 ? 0 : value / 12_700d;
     private static OfficeTextAlignment ConvertAlignment(ParagraphAlignment alignment) => alignment switch
     {
         ParagraphAlignment.CENTER => OfficeTextAlignment.Center,

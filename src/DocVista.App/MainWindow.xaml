@@ -4,7 +4,6 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
         Title="DocVista" Width="1240" Height="780" MinWidth="860" MinHeight="560"
         WindowStyle="None" ResizeMode="CanResize" Background="{StaticResource BoneSoftBrush}"
@@ -32,8 +31,8 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="28" Height="28" CornerRadius="6" Background="{StaticResource BoneBrush}">
-                            <TextBlock Text="D" Foreground="{StaticResource OuterSpaceBrush}" FontWeight="Bold" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <Border Width="28" Height="28" CornerRadius="6" Background="{StaticResource AccentBrush}">
+                            <TextBlock Text="D" Foreground="White" FontWeight="Bold" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <TextBlock Text="DocVista" Foreground="{StaticResource SidebarTextBrush}" FontSize="16" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
@@ -57,8 +56,8 @@
                                                 <ContentPresenter/>
                                             </Border>
                                             <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#354652"/></Trigger>
-                                                <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#425766"/></Trigger>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#334651"/></Trigger>
+                                                <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemSurface" Property="Background" Value="#3B5260"/></Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Setter.Value>
@@ -95,7 +94,7 @@
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions><RowDefinition Height="48"/><RowDefinition Height="48"/><RowDefinition Height="*"/><RowDefinition Height="30"/></Grid.RowDefinitions>
 
-                <Border Grid.Row="0" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                <Border Grid.Row="0" Background="{StaticResource DocumentSurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <Button Grid.Column="0" Style="{StaticResource IconButton}" Content="&#xE700;" ToolTip="折叠侧栏" Click="SidebarButton_Click" shell:WindowChrome.IsHitTestVisibleInChrome="True"/>
@@ -112,7 +111,7 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="1" Background="{StaticResource BoneBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,0">
+                <Border Grid.Row="1" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="10,0">
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -140,8 +139,8 @@
                 <Grid Grid.Row="2" x:Name="ViewerArea" Background="{StaticResource CanvasBrush}" ClipToBounds="True">
                     <Grid x:Name="EmptyState">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="460">
-                            <Border Width="72" Height="82" CornerRadius="7" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
-                                <Grid><TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource OuterSpaceBrush}" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
+                            <Border Width="72" Height="82" CornerRadius="7" Background="{StaticResource DocumentSurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                                <Grid><TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource AccentBrush}" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center"/></Grid>
                             </Border>
                             <TextBlock Text="打开一份文档" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,22,0,8"/>
                             <TextBlock Text="拖放文件到这里，或从电脑中选择" Foreground="{StaticResource MutedTextBrush}" FontSize="13" HorizontalAlignment="Center"/>
@@ -150,14 +149,14 @@
                         </StackPanel>
                     </Grid>
 
-                    <Grid x:Name="LoadingState" Visibility="Collapsed" Background="{StaticResource BoneSoftBrush}">
+                    <Grid x:Name="LoadingState" Visibility="Collapsed" Background="{StaticResource ChromeBrush}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                             <ProgressBar Width="180" Height="3" IsIndeterminate="True" Foreground="{StaticResource AccentBrush}"/>
                             <TextBlock x:Name="LoadingText" Text="正在打开文档…" Foreground="{StaticResource MutedTextBrush}" FontSize="12" Margin="0,14,0,0" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
 
-                    <Grid x:Name="ErrorState" Visibility="Collapsed" Background="{StaticResource BoneSoftBrush}">
+                    <Grid x:Name="ErrorState" Visibility="Collapsed" Background="{StaticResource ChromeBrush}">
                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480">
                             <TextBlock Text="&#xEA39;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource WengeBrush}" FontSize="30" HorizontalAlignment="Center"/>
                             <TextBlock Text="无法预览此文档" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,14,0,6"/>
@@ -166,17 +165,16 @@
                         </StackPanel>
                     </Grid>
 
-                    <wv2:WebView2 x:Name="PdfViewer" Visibility="Collapsed" DefaultBackgroundColor="#D1CBC2"/>
-                    <DataGrid x:Name="TableViewer" Visibility="Collapsed" Margin="12" Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                    <Grid x:Name="PdfViewerContainer" Visibility="Collapsed" Background="{StaticResource DocumentSurfaceBrush}"/>
+                    <DataGrid x:Name="TableViewer" Visibility="Collapsed" Background="{StaticResource DocumentSurfaceBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0"
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True" CanUserResizeColumns="True"
-                              HeadersVisibility="All" GridLinesVisibility="All" HorizontalGridLinesBrush="#E5DED5" VerticalGridLinesBrush="#DED6CB"
-                              RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="#F2EDE6"
+                              HeadersVisibility="All" GridLinesVisibility="All" HorizontalGridLinesBrush="{StaticResource GridLineBrush}" VerticalGridLinesBrush="{StaticResource GridLineBrush}"
+                              RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="{StaticResource DocumentSurfaceBrush}"
                               SelectionUnit="FullRow"
                               EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
-                        <DataGrid.LayoutTransform><ScaleTransform x:Name="TableScaleTransform" ScaleX="1" ScaleY="1"/></DataGrid.LayoutTransform>
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
-                                <Setter Property="Background" Value="{StaticResource BoneBrush}"/>
+                                <Setter Property="Background" Value="{StaticResource GridHeaderBrush}"/>
                                 <Setter Property="Foreground" Value="{StaticResource OuterSpaceBrush}"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                                 <Setter Property="Padding" Value="8,0"/>
@@ -186,7 +184,7 @@
                         </DataGrid.ColumnHeaderStyle>
                         <DataGrid.RowHeaderStyle>
                             <Style TargetType="DataGridRowHeader">
-                                <Setter Property="Background" Value="{StaticResource BoneSoftBrush}"/>
+                                <Setter Property="Background" Value="{StaticResource GridHeaderBrush}"/>
                                 <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
                                 <Setter Property="BorderThickness" Value="0,0,1,1"/>
                             </Style>
@@ -205,15 +203,15 @@
                             </Style>
                         </DataGrid.CellStyle>
                     </DataGrid>
-                    <ScrollViewer x:Name="OfficeViewer" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Background="{StaticResource CanvasBrush}">
+                    <ScrollViewer x:Name="OfficeViewer" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" Background="{StaticResource CanvasBrush}" ScrollChanged="OfficeViewer_ScrollChanged">
                         <StackPanel x:Name="OfficePagesPanel" Margin="0,12,0,24">
                             <StackPanel.LayoutTransform><ScaleTransform x:Name="OfficeScaleTransform" ScaleX="1" ScaleY="1"/></StackPanel.LayoutTransform>
                         </StackPanel>
                     </ScrollViewer>
-                    <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="{StaticResource PanelBrush}"/>
+                    <Grid x:Name="ShellViewerContainer" Visibility="Collapsed" Background="{StaticResource DocumentSurfaceBrush}"/>
                 </Grid>
 
-                <Border Grid.Row="3" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,0">
+                <Border Grid.Row="3" Background="{StaticResource ChromeBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="10,0">
                     <Grid><TextBlock x:Name="StatusText" Text="就绪" Foreground="{StaticResource MutedTextBrush}" FontSize="10" VerticalAlignment="Center"/>
                         <TextBlock Text="只读模式" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource WengeBrush}" FontSize="10"/>
                     </Grid>

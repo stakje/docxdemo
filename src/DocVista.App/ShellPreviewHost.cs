@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -15,6 +16,7 @@ public sealed class ShellPreviewHost : HwndHost
     private IntPtr _hostWindow;
     private object? _previewObject;
     private IPreviewHandler? _previewHandler;
+    private PreviewRect _lastRect;
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
@@ -38,6 +40,7 @@ public sealed class ShellPreviewHost : HwndHost
         _previewHandler = handler;
         var rect = CurrentRect();
         Marshal.ThrowExceptionForHR(handler.SetWindow(_hostWindow, ref rect));
+        _lastRect = rect;
         Marshal.ThrowExceptionForHR(handler.DoPreview());
     }
 
@@ -51,7 +54,8 @@ public sealed class ShellPreviewHost : HwndHost
             var target = focusedWindow == IntPtr.Zero ? _hostWindow : focusedWindow;
             var delta = direction > 0 ? 120 : -120;
             var wheelParameters = new IntPtr((delta << 16) | 0x0008);
-            for (var index = 0; index < steps; index++) SendMessage(target, 0x020A, wheelParameters, IntPtr.Zero);
+            for (var index = 0; index < steps; index++)
+                if (SendMessageTimeout(target, 0x020A, wheelParameters, IntPtr.Zero, 0x0002, 200, out _) == IntPtr.Zero) return false;
             return true;
         }
         catch { return false; }
@@ -62,13 +66,20 @@ public sealed class ShellPreviewHost : HwndHost
         base.OnWindowPositionChanged(rcBoundingBox);
         if (_previewHandler is null) return;
         var rect = CurrentRect();
-        _previewHandler.SetRect(ref rect);
+        if (SameRect(rect, _lastRect)) return;
+        try
+        {
+            Marshal.ThrowExceptionForHR(_previewHandler.SetRect(ref rect));
+            _lastRect = rect;
+        }
+        catch (Exception exception) { Debug.WriteLine($"系统预览组件调整尺寸失败：{exception}"); }
     }
 
     public void UnloadPreview()
     {
         try { _previewHandler?.Unload(); } catch { }
         _previewHandler = null;
+        _lastRect = default;
         if (_previewObject is not null && Marshal.IsComObject(_previewObject)) Marshal.FinalReleaseComObject(_previewObject);
         _previewObject = null;
     }
@@ -85,6 +96,9 @@ public sealed class ShellPreviewHost : HwndHost
         GetClientRect(_hostWindow, out var rect);
         return rect;
     }
+
+    private static bool SameRect(PreviewRect left, PreviewRect right) =>
+        left.Left == right.Left && left.Top == right.Top && left.Right == right.Right && left.Bottom == right.Bottom;
 
     private static Guid? FindPreviewHandler(string extension)
     {
@@ -139,5 +153,6 @@ public sealed class ShellPreviewHost : HwndHost
     private static extern IntPtr CreateWindowEx(int exStyle, string className, string windowName, int style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out PreviewRect rect);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out UIntPtr result);
 }

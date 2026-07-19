@@ -8,11 +8,13 @@ public sealed record TableDocument(DataTable Table, bool WasTruncated, string Su
 public static class CsvDocument
 {
     private const int MaximumRows = 100_000;
+    private const int MaximumCells = 2_000_000;
 
     public static async Task<TableDocument> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         var encoding = DetectEncoding(path);
-        using var reader = new StreamReader(path, encoding, detectEncodingFromByteOrderMarks: true);
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
         var sample = new List<string>();
         for (var i = 0; i < 12 && await reader.ReadLineAsync(cancellationToken) is { } line; i++) sample.Add(line);
 
@@ -20,49 +22,104 @@ public static class CsvDocument
         reader.BaseStream.Position = 0;
         reader.DiscardBufferedData();
 
-        var rows = new List<string[]>();
-        string? current;
-        var logical = new StringBuilder();
-        while ((current = await reader.ReadLineAsync(cancellationToken)) is not null)
+        const int probeRows = 256;
+        var bufferedRows = new List<string[]>(probeRows + 1);
+        for (var index = 0; index <= probeRows; index++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (logical.Length > 0) logical.AppendLine();
-            logical.Append(current);
-            if (HasOpenQuote(logical)) continue;
-
-            rows.Add(ParseLine(logical.ToString(), delimiter));
-            logical.Clear();
-            if (rows.Count > MaximumRows) break;
+            var record = await ReadRecordAsync(reader, cancellationToken);
+            if (record is null) break;
+            bufferedRows.Add(ParseLine(record, delimiter));
         }
 
-        if (rows.Count == 0) return new TableDocument(new DataTable(), false, "空 CSV 文件");
-        var width = Math.Min(rows.Max(row => row.Length), 512);
+        if (bufferedRows.Count == 0) return new TableDocument(new DataTable(), false, "空 CSV 文件");
+        var width = Math.Min(bufferedRows.Max(row => row.Length), 512);
         var table = new DataTable(Path.GetFileName(path));
-        var header = rows[0];
-        for (var i = 0; i < width; i++)
+        var header = bufferedRows[0];
+        AddColumns(table, header, width);
+
+        var rowsRead = 0;
+        var truncated = false;
+        table.BeginLoadData();
+        try
         {
-            var proposed = i < header.Length && !string.IsNullOrWhiteSpace(header[i]) ? header[i].Trim() : $"列 {i + 1}";
+            foreach (var values in bufferedRows.Skip(1))
+            {
+                AddRow(table, values);
+                rowsRead++;
+            }
+
+            while (rowsRead < MaximumRows && (long)table.Columns.Count * (rowsRead + 1) <= MaximumCells)
+            {
+                var record = await ReadRecordAsync(reader, cancellationToken);
+                if (record is null) break;
+                var values = ParseLine(record, delimiter);
+                var requiredWidth = Math.Min(values.Length, 512);
+                if ((long)Math.Max(requiredWidth, table.Columns.Count) * (rowsRead + 1) > MaximumCells)
+                {
+                    truncated = true;
+                    break;
+                }
+                if (requiredWidth > table.Columns.Count) AddColumns(table, header, requiredWidth);
+                AddRow(table, values);
+                rowsRead++;
+            }
+
+            if (!truncated && (rowsRead >= MaximumRows || (long)table.Columns.Count * (rowsRead + 1) > MaximumCells))
+                truncated = await ReadRecordAsync(reader, cancellationToken) is not null;
+        }
+        finally { table.EndLoadData(); }
+
+        return new TableDocument(table, truncated, $"{table.Rows.Count:N0} 行 · {table.Columns.Count:N0} 列 · {EncodingLabel(encoding)}");
+    }
+
+    private static void AddColumns(DataTable table, IReadOnlyList<string> header, int requiredWidth)
+    {
+        while (table.Columns.Count < requiredWidth)
+        {
+            var index = table.Columns.Count;
+            var proposed = index < header.Count && !string.IsNullOrWhiteSpace(header[index]) ? header[index].Trim() : $"列 {index + 1}";
             var name = proposed;
             var suffix = 2;
             while (table.Columns.Contains(name)) name = $"{proposed} ({suffix++})";
             table.Columns.Add(name, typeof(string));
         }
+    }
 
-        foreach (var values in rows.Skip(1).Take(MaximumRows))
+    private static void AddRow(DataTable table, IReadOnlyList<string> values)
+    {
+        var row = table.NewRow();
+        for (var index = 0; index < Math.Min(table.Columns.Count, values.Count); index++) row[index] = values[index];
+        table.Rows.Add(row);
+    }
+
+    private static async Task<string?> ReadRecordAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        var record = new StringBuilder();
+        var quoted = false;
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
-            var row = table.NewRow();
-            for (var i = 0; i < Math.Min(width, values.Length); i++) row[i] = values[i];
-            table.Rows.Add(row);
+            if (record.Length > 0) record.AppendLine();
+            record.Append(line);
+            UpdateQuoteState(line, ref quoted);
+            if (!quoted) return record.ToString();
         }
+        return record.Length == 0 ? null : record.ToString();
+    }
 
-        var truncated = rows.Count > MaximumRows;
-        return new TableDocument(table, truncated, $"{table.Rows.Count:N0} 行 · {table.Columns.Count:N0} 列 · {EncodingLabel(encoding)}");
+    private static void UpdateQuoteState(string text, ref bool quoted)
+    {
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] != '"') continue;
+            if (quoted && index + 1 < text.Length && text[index + 1] == '"') index++;
+            else quoted = !quoted;
+        }
     }
 
     private static Encoding DetectEncoding(string path)
     {
         var bytes = new byte[4];
-        using var stream = File.OpenRead(path);
+        using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         var count = stream.Read(bytes, 0, bytes.Length);
         if (count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return new UTF8Encoding(true);
         if (count >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) return Encoding.Unicode;
@@ -106,18 +163,6 @@ public static class CsvDocument
             else if (!quoted && line[i] == delimiter) count++;
         }
         return count;
-    }
-
-    private static bool HasOpenQuote(StringBuilder text)
-    {
-        var quoted = false;
-        for (var i = 0; i < text.Length; i++)
-        {
-            if (text[i] != '"') continue;
-            if (quoted && i + 1 < text.Length && text[i + 1] == '"') i++;
-            else quoted = !quoted;
-        }
-        return quoted;
     }
 
     private static string[] ParseLine(string line, char delimiter)

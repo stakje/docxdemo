@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="设置" Width="520" Height="610" ResizeMode="NoResize" WindowStyle="None"
-        WindowStartupLocation="CenterOwner" Background="{StaticResource BoneSoftBrush}"
+        WindowStartupLocation="CenterOwner" Background="{StaticResource ChromeBrush}"
         FontFamily="{StaticResource UiFont}" Foreground="{StaticResource TextBrush}">
     <shell:WindowChrome.WindowChrome>
         <shell:WindowChrome CaptionHeight="46" ResizeBorderThickness="0" CornerRadius="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
@@ -36,7 +36,7 @@
                 <RowDefinition Height="58"/>
             </Grid.RowDefinitions>
 
-            <Border Grid.Row="0" Background="{StaticResource BoneSoftBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border Grid.Row="0" Background="{StaticResource DocumentSurfaceBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <TextBlock Text="设置" FontSize="14" FontWeight="SemiBold" Margin="18,0" VerticalAlignment="Center"/>
                     <Button HorizontalAlignment="Right" Style="{StaticResource IconButton}" Width="46" Content="&#xE8BB;" ToolTip="关闭" Click="CancelButton_Click" shell:WindowChrome.IsHitTestVisibleInChrome="True"/>

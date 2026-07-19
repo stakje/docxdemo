@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.5",
+    [string]$Version = "0.1.6",
     [ValidateSet("win", "beta")][string]$Channel = "win",
     [string]$SignParams = "",
     [string]$InnoCompiler = ""
@@ -54,7 +54,7 @@ $packArguments = @(
     "--releaseNotes", (Join-Path $root "CHANGELOG.md"),
     "--noPortable", "true",
     "--shortcuts", "StartMenuRoot",
-    "--splashProgressColor", "#80A3C8"
+    "--splashProgressColor", "#2F6FBA"
 )
 if ($SignParams) { $packArguments += @("--signParams", $SignParams) }
 & $dotnet @packArguments
