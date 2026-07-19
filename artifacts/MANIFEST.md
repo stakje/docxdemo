@@ -8,11 +8,11 @@
 | --- | --- |
 | 文件 | `installer/DocVista-win-Setup.exe` |
 | 类型 | Windows x64 经典分步安装向导（单 EXE） |
-| 版本 | `0.1.6` |
-| 文件大小 | 83,070,682 字节（79.22 MB） |
-| SHA-256 | `4B48C9F72AD23176E4783C92F1E1494178A9E5920E0DA6E7A20CE3A9E9890556` |
-| 构建源码提交 | `dc5c5390a517afaa5cec70d07cade41a71b74c86` |
-| 生成时间 | 2026-07-19 21:01:05 +08:00 |
+| 版本 | `0.1.7` |
+| 文件大小 | 83,072,512 字节（79.22 MB） |
+| SHA-256 | `9F7D0AC6993C768122FB9D11515077D3673983BF808A2E0BE7493E2D54A8F587` |
+| 构建源码提交 | `d266ba3991419c1a9181fcc6c64f724bc96188af` |
+| 生成时间 | 2026-07-19 21:32:18 +08:00 |
 | 代码签名 | 未签名 |
 
 `artifacts/installer` 目录只保留上述 Setup EXE，不保留 Portable、nupkg、独立更新程序或打包中间文件。
@@ -29,17 +29,17 @@
 
 ## 发布内容
 
-- 目标 Release：`v0.1.6`
+- 目标 Release：`v0.1.7`
 - Release 只发布 `DocVista-win-Setup.exe`。
 - 不发布在线更新清单、完整更新包或差分更新包。
 
 ## 验证状态
 
-- Release 解决方案构建成功，0 个警告、0 个错误。
+- Release 解决方案构建成功，0 个错误；本地受限网络仅产生 NuGet 漏洞索引不可用的 `NU1900` 提示。
 - 格式识别、设置归一化、CSV、XLSX、DOCX、PPTX、XLS、旧版 Office、PDF 文件源、CSV 渐进列探测和解析取消共 11 项测试通过。
 - DOCX 测试覆盖段落/表格顺序、常用文字样式、单元格、内嵌图片及图片尺寸单位。
-- 有效 PDF 已通过本机 WebView2 真实导航验证；窗口级截图确认纯白文档页、浅灰工作区及图片尺寸正确。
-- Setup 文件版本和产品版本均为 `0.1.6`，Velopack 与 Inno Setup 打包流程成功完成。
+- PDF 保留 WebView2 原生选择、快捷键和右键菜单；Office 兼容视图及数据表格已接入只读复制控件与命令。
+- Setup 文件版本和产品版本均为 `0.1.7`，Velopack 与 Inno Setup 打包流程成功完成。
 - `artifacts/installer` 中仅保留一个 Setup EXE，发布和 publish 中间目录均已清理。
 
 ## 注意事项
