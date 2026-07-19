@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Windows.Input;
 using System.Windows.Interop;
 
 namespace DocVista.App;
@@ -17,6 +18,12 @@ public sealed class ShellPreviewHost : HwndHost
     private object? _previewObject;
     private IPreviewHandler? _previewHandler;
     private PreviewRect _lastRect;
+
+    public ShellPreviewHost()
+    {
+        Focusable = true;
+        KeyboardNavigation.SetIsTabStop(this, true);
+    }
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
@@ -56,6 +63,45 @@ public sealed class ShellPreviewHost : HwndHost
             var wheelParameters = new IntPtr((delta << 16) | 0x0008);
             for (var index = 0; index < steps; index++)
                 if (SendMessageTimeout(target, 0x020A, wheelParameters, IntPtr.Zero, 0x0002, 200, out _) == IntPtr.Zero) return false;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    protected override bool TabIntoCore(TraversalRequest request) => TryFocusPreview();
+
+    protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
+    {
+        base.OnGotKeyboardFocus(e);
+        TryFocusPreview();
+    }
+
+    protected override bool TranslateAcceleratorCore(ref MSG msg, ModifierKeys modifiers)
+    {
+        if (_previewHandler is null) return false;
+        try
+        {
+            var previewMessage = new PreviewMessage
+            {
+                Window = msg.hwnd,
+                Message = unchecked((uint)msg.message),
+                WParam = msg.wParam,
+                LParam = msg.lParam,
+                Time = unchecked((uint)msg.time),
+                PointX = msg.pt_x,
+                PointY = msg.pt_y
+            };
+            return _previewHandler.TranslateAccelerator(ref previewMessage) == 0;
+        }
+        catch { return false; }
+    }
+
+    private bool TryFocusPreview()
+    {
+        if (_previewHandler is null) return false;
+        try
+        {
+            Marshal.ThrowExceptionForHR(_previewHandler.SetFocus());
             return true;
         }
         catch { return false; }
@@ -142,7 +188,7 @@ public sealed class ShellPreviewHost : HwndHost
     {
         public IntPtr Window;
         public uint Message;
-        public UIntPtr WParam;
+        public IntPtr WParam;
         public IntPtr LParam;
         public uint Time;
         public int PointX;

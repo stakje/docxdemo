@@ -184,6 +184,7 @@ public partial class MainWindow : Window
         cancellationToken.ThrowIfCancellationRequested();
         if (openGeneration != _openGeneration) throw new OperationCanceledException(cancellationToken);
         ShowState(PdfViewerContainer);
+        _pdfViewer?.Focus();
         _activePdfPath = path;
         _activePdfGeneration = openGeneration;
         _displayMode = "PDF";
@@ -248,6 +249,7 @@ public partial class MainWindow : Window
         _pdfCore = _pdfViewer.CoreWebView2;
         var settings = _pdfCore.Settings;
         settings.AreBrowserAcceleratorKeysEnabled = true;
+        settings.AreDefaultContextMenusEnabled = true;
         settings.IsStatusBarEnabled = false;
         _pdfCore.ProcessFailed -= PdfViewer_ProcessFailed;
         _pdfCore.ProcessFailed += PdfViewer_ProcessFailed;
@@ -433,6 +435,7 @@ public partial class MainWindow : Window
             cancellationToken.ThrowIfCancellationRequested();
             if (!ReferenceEquals(_shellPreview, preview)) throw new OperationCanceledException();
             preview.LoadPreview(path);
+            preview.Focus();
             ApplyZoomToShellFromDefault(preview);
             _displayMode = "系统高保真预览";
             SearchBox.Visibility = Visibility.Collapsed;
@@ -481,7 +484,14 @@ public partial class MainWindow : Window
     {
         var content = new StackPanel();
         if (!string.IsNullOrWhiteSpace(page.Title))
-            content.Children.Add(new TextBlock { Text = page.Title, FontSize = mode == OfficeViewMode.Presentation ? 26 : 20, FontWeight = FontWeights.SemiBold, Foreground = (Brush)FindResource("OuterSpaceBrush"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
+        {
+            var title = CreateSelectableText(page.Title);
+            title.FontSize = mode == OfficeViewMode.Presentation ? 26 : 20;
+            title.FontWeight = FontWeights.SemiBold;
+            title.Foreground = (Brush)FindResource("OuterSpaceBrush");
+            title.Margin = new Thickness(0, 0, 0, 18);
+            content.Children.Add(title);
+        }
 
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -515,24 +525,21 @@ public partial class MainWindow : Window
         if (block.ImageData is { Length: > 0 }) return CreateDocumentImage(block);
 
         var fontSize = block.IsHeading ? 20 : block.FontSize > 0 ? Math.Clamp(block.FontSize * 96d / 72d, 11, 28) : mode == OfficeViewMode.Presentation ? 16 : 13;
-        var text = new TextBlock
+        var text = CreateSelectableText(block.Text);
+        text.FontSize = fontSize;
+        text.FontWeight = block.IsHeading || block.IsBold ? FontWeights.SemiBold : FontWeights.Normal;
+        text.FontStyle = block.IsItalic ? FontStyles.Italic : FontStyles.Normal;
+        text.Foreground = (Brush)FindResource(block.IsHeading ? "OuterSpaceBrush" : "TextBrush");
+        text.TextAlignment = block.Alignment switch
         {
-            Text = block.Text,
-            FontSize = fontSize,
-            FontWeight = block.IsHeading || block.IsBold ? FontWeights.SemiBold : FontWeights.Normal,
-            FontStyle = block.IsItalic ? FontStyles.Italic : FontStyles.Normal,
-            Foreground = (Brush)FindResource(block.IsHeading ? "OuterSpaceBrush" : "TextBrush"),
-            TextWrapping = TextWrapping.Wrap,
-            TextAlignment = block.Alignment switch
-            {
-                OfficeTextAlignment.Center => TextAlignment.Center,
-                OfficeTextAlignment.Right => TextAlignment.Right,
-                OfficeTextAlignment.Justify => TextAlignment.Justify,
-                _ => TextAlignment.Left
-            },
-            LineHeight = mode == OfficeViewMode.Presentation ? 27 : 22,
-            Margin = new Thickness(block.LeftIndent + block.FirstLineIndent, Math.Max(block.SpaceBefore, block.IsHeading ? 14 : 3), 0, Math.Max(block.SpaceAfter, block.IsHeading ? 8 : 5))
+            OfficeTextAlignment.Center => TextAlignment.Center,
+            OfficeTextAlignment.Right => TextAlignment.Right,
+            OfficeTextAlignment.Justify => TextAlignment.Justify,
+            _ => TextAlignment.Left
         };
+        TextBlock.SetLineHeight(text, mode == OfficeViewMode.Presentation ? 27 : 22);
+        TextBlock.SetLineStackingStrategy(text, LineStackingStrategy.BlockLineHeight);
+        text.Margin = new Thickness(block.LeftIndent + block.FirstLineIndent, Math.Max(block.SpaceBefore, block.IsHeading ? 14 : 3), 0, Math.Max(block.SpaceAfter, block.IsHeading ? 8 : 5));
         if (block.IsTableRow && block.Cells is { Count: > 0 }) return CreateTableRow(block.Cells);
         if (block.IsTableRow)
             return new Border { Background = (Brush)FindResource("DocumentSurfaceBrush"), BorderBrush = (Brush)FindResource("LineBrush"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(9, 6, 9, 6), Child = text };
@@ -657,12 +664,44 @@ public partial class MainWindow : Window
                 BorderBrush = (Brush)FindResource("LineBrush"),
                 BorderThickness = new Thickness(index == 0 ? 1 : 0, 0, 1, 1),
                 Padding = new Thickness(8, 6, 8, 6),
-                Child = new TextBlock { Text = cells[index], TextWrapping = TextWrapping.Wrap, FontSize = 12, LineHeight = 19 }
+                Child = CreateSelectableTableCell(cells[index])
             };
             Grid.SetColumn(cell, index);
             grid.Children.Add(cell);
         }
         return grid;
+    }
+
+    private TextBox CreateSelectableText(string value)
+    {
+        return new TextBox
+        {
+            Text = value,
+            IsReadOnly = true,
+            IsReadOnlyCaretVisible = true,
+            IsTabStop = false,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            FocusVisualStyle = null,
+            Cursor = Cursors.IBeam,
+            SelectionBrush = (Brush)FindResource("AccentBrush"),
+            SelectionOpacity = 0.3,
+            IsInactiveSelectionHighlightEnabled = true
+        };
+    }
+
+    private TextBox CreateSelectableTableCell(string value)
+    {
+        var text = CreateSelectableText(value);
+        text.FontSize = 12;
+        TextBlock.SetLineHeight(text, 19);
+        TextBlock.SetLineStackingStrategy(text, LineStackingStrategy.BlockLineHeight);
+        return text;
     }
 
     private void ShowTable(TableDocument document)

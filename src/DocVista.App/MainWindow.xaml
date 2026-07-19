@@ -170,8 +170,14 @@
                               IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False" CanUserReorderColumns="True" CanUserResizeColumns="True"
                               HeadersVisibility="All" GridLinesVisibility="All" HorizontalGridLinesBrush="{StaticResource GridLineBrush}" VerticalGridLinesBrush="{StaticResource GridLineBrush}"
                               RowHeight="30" ColumnHeaderHeight="34" RowHeaderWidth="46" AlternatingRowBackground="{StaticResource DocumentSurfaceBrush}"
-                              SelectionUnit="FullRow"
+                              SelectionUnit="CellOrRowHeader" SelectionMode="Extended" ClipboardCopyMode="ExcludeHeader"
                               EnableRowVirtualization="True" EnableColumnVirtualization="True" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling">
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="复制" Command="{x:Static ApplicationCommands.Copy}"
+                                          CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType={x:Type ContextMenu}}}"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
                         <DataGrid.ColumnHeaderStyle>
                             <Style TargetType="DataGridColumnHeader">
                                 <Setter Property="Background" Value="{StaticResource GridHeaderBrush}"/>
